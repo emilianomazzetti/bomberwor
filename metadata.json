@@ -1,0 +1,6 @@
+{
+  "name": "BomberWord - Multiplayer Didattico LIM & Tablet",
+  "description": "Gioco multiplayer dual-screen (LIM/Host e Tablet Controller) in stile Bomberman con sfide didattiche multimateria per la scuola primaria.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
