@@ -6,9 +6,11 @@ import {
   onValue,
   joinPlayerToRoom,
   sendPlayerInput,
-  updatePlayerData
+  updatePlayerData,
+  localSyncChannel
 } from '../services/firebase';
 import { soundEngine } from '../utils/audio';
+import { DbStatusBadge } from './DbStatusBadge';
 import {
   Bomb,
   Sparkles,
@@ -63,7 +65,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
     if (savedName) setPlayerName(savedName);
   }, []);
 
-  // Listen to authoritative player state from Firebase once joined
+  // Listen to authoritative player state from Firebase & Local Broadcast once joined
   useEffect(() => {
     if (!joined || !pin) return;
 
@@ -82,11 +84,31 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
       if (data.options) setOptions(data.options);
     });
 
-    return () => unsubscribe();
+    const handleLocalMsg = (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || data.pin !== pin) return;
+      if (data.type === 'PLAYER_UPDATE' && data.playerId === playerId) {
+        const p = data.partial;
+        if (p.score !== undefined) setScore(p.score);
+        if (p.bombs !== undefined) setBombs(p.bombs);
+        if (p.isGhost !== undefined) setIsGhost(p.isGhost);
+        if (p.questionText) setQuestionText(p.questionText);
+        if (p.targetSymbol) setTargetSymbol(p.targetSymbol);
+        if (p.spellingWord) setSpellingWord(p.spellingWord);
+        if (p.letterIndex !== undefined) setLetterIndex(p.letterIndex);
+        if (p.options) setOptions(p.options);
+      }
+    };
+    localSyncChannel?.addEventListener('message', handleLocalMsg);
+
+    return () => {
+      unsubscribe();
+      localSyncChannel?.removeEventListener('message', handleLocalMsg);
+    };
   }, [joined, pin, playerId]);
 
-  // Handle Join Game
-  const handleJoinGame = async (e: React.FormEvent) => {
+  // Handle Join Game (immediate & non-blocking)
+  const handleJoinGame = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPin = pin.trim();
     const cleanName = playerName.trim() || `Giocatore ${selectedColorIdx + 1}`;
@@ -98,26 +120,24 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
 
     localStorage.setItem('bomberword_player_name', cleanName);
 
-    try {
-      await joinPlayerToRoom(cleanPin, {
-        id: playerId,
-        name: cleanName,
-        color: CHARACTER_OPTIONS[selectedColorIdx].hex,
-        colorIdx: selectedColorIdx,
-        score: 0,
-        bombs: 1,
-        maxBombs: 3,
-        isGhost: false,
-        questionText: 'Pronto al via!',
-        targetSymbol: '',
-        joinedAt: Date.now(),
-        lastPing: Date.now()
-      });
-      setJoined(true);
-    } catch (err) {
-      console.warn('Firebase join notice, connecting locally:', err);
-      setJoined(true);
-    }
+    // Join asynchronously
+    joinPlayerToRoom(cleanPin, {
+      id: playerId,
+      name: cleanName,
+      color: CHARACTER_OPTIONS[selectedColorIdx].hex,
+      colorIdx: selectedColorIdx,
+      score: 0,
+      bombs: 1,
+      maxBombs: 3,
+      isGhost: false,
+      questionText: 'Pronto al via!',
+      targetSymbol: '',
+      joinedAt: Date.now(),
+      lastPing: Date.now()
+    }).catch(err => console.warn('Firebase join notice:', err));
+
+    // Immediately open in-game touch screen!
+    setJoined(true);
   };
 
   // Continuous input sender to Firebase (every 65ms = ~15 updates/sec, optimal for Realtime DB)
@@ -241,9 +261,12 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
         <div className="w-full max-w-md bg-slate-800/90 backdrop-blur-md rounded-3xl border-2 border-slate-700 p-6 sm:p-8 shadow-2xl">
           
           <div className="text-center mb-6">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold mb-2">
-              <Gamepad2 className="w-4 h-4 text-amber-400" />
-              Tablet Controller Alunno
+            <div className="flex flex-wrap items-center justify-center gap-2 mb-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold">
+                <Gamepad2 className="w-4 h-4 text-amber-400" />
+                Tablet Controller Alunno
+              </div>
+              <DbStatusBadge />
             </div>
             <h1 className="text-3xl font-black text-white">
               BOMBER<span className="text-amber-400">WORD</span>

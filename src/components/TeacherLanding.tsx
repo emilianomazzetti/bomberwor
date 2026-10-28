@@ -17,6 +17,8 @@ import {
   Monitor
 } from 'lucide-react';
 
+import { DbStatusBadge } from './DbStatusBadge';
+
 interface TeacherLandingProps {
   onStartHost: (pin: string, subject: SubjectType, durationMinutes: number, maxPlayers: number, mysteryBoxes: boolean) => void;
   onOpenController: (pin: string) => void;
@@ -35,7 +37,7 @@ export const TeacherLanding: React.FC<TeacherLandingProps> = ({ onStartHost, onO
   const [useGithubUrl, setUseGithubUrl] = useState<boolean>(false);
 
   // Controller URLs
-  const githubBaseUrl = `https://emilianomazzetti.github.io/bomberword/?mode=controller&room=${pin}`;
+  const githubBaseUrl = `https://emilianomazzetti.github.io/bomberwor/?mode=controller&room=${pin}`;
   const localBaseUrl = `${window.location.origin}${window.location.pathname}?mode=controller&room=${pin}`;
   const activeControllerUrl = useGithubUrl ? githubBaseUrl : localBaseUrl;
 
@@ -68,22 +70,19 @@ export const TeacherLanding: React.FC<TeacherLandingProps> = ({ onStartHost, onO
     }
   };
 
-  const handleLaunchHost = async () => {
-    // Save initial room configuration to Firebase
-    try {
-      await createOrUpdateRoom(pin, {
-        pin,
-        subject,
-        durationMinutes,
-        maxPlayers,
-        mysteryBoxes,
-        status: 'waiting',
-        createdAt: Date.now()
-      });
-    } catch (err) {
-      console.warn('Firebase sync notice (proceeding to host):', err);
-    }
+  const handleLaunchHost = () => {
+    // Save initial room configuration to Firebase asynchronously
+    createOrUpdateRoom(pin, {
+      pin,
+      subject,
+      durationMinutes,
+      maxPlayers,
+      mysteryBoxes,
+      status: 'waiting',
+      createdAt: Date.now()
+    }).catch(err => console.warn('Firebase sync notice:', err));
 
+    // Immediately launch host screen without waiting on network
     onStartHost(pin, subject, durationMinutes, maxPlayers, mysteryBoxes);
   };
 
@@ -96,9 +95,12 @@ export const TeacherLanding: React.FC<TeacherLandingProps> = ({ onStartHost, onO
 
       {/* Main Header / Title */}
       <header className="relative z-10 text-center mb-6 max-w-4xl">
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-sm font-semibold tracking-wide mb-3">
-          <Sparkles className="w-4 h-4 animate-spin text-amber-400" />
-          Multiplayer Didattico Dual-Screen per Scuola Primaria
+        <div className="flex flex-wrap items-center justify-center gap-3 mb-3">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-sm font-semibold tracking-wide">
+            <Sparkles className="w-4 h-4 animate-spin text-amber-400" />
+            Multiplayer Didattico Dual-Screen per Scuola Primaria
+          </div>
+          <DbStatusBadge />
         </div>
         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-white drop-shadow-md">
           BOMBER<span className="text-amber-400">WORD</span> 💣

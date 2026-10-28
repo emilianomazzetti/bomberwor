@@ -3,7 +3,8 @@ import { GameEngine } from '../game/GameEngine';
 import { SubjectType, SUBJECTS } from '../data/educationalData';
 import { CHARACTER_OPTIONS } from '../data/characters';
 import { soundEngine } from '../utils/audio';
-import { db, ref, onValue, update } from '../services/firebase';
+import { db, ref, onValue, update, localSyncChannel } from '../services/firebase';
+import { DbStatusBadge } from './DbStatusBadge';
 import QRCode from 'qrcode';
 import confetti from 'canvas-confetti';
 import {
@@ -108,8 +109,34 @@ export const HostScreen: React.FC<HostScreenProps> = ({
       });
     });
 
+    // Local BroadcastChannel listener for instant cross-tab sync without network lag
+    const handleLocalMsg = (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || data.pin !== pin) return;
+
+      if (data.type === 'PLAYER_JOIN' && data.player) {
+        engine.addOrUpdatePlayer(
+          data.player.id,
+          data.player.name,
+          data.player.colorIdx,
+          subject
+        );
+      } else if (data.type === 'PLAYER_INPUT' && data.input) {
+        engine.updatePlayerInput(
+          data.playerId,
+          data.input.dx || 0,
+          data.input.dy || 0,
+          data.input.bombSeq || 0
+        );
+      } else if (data.type === 'PLAYER_LEAVE') {
+        engine.removePlayer(data.playerId);
+      }
+    };
+    localSyncChannel?.addEventListener('message', handleLocalMsg);
+
     return () => {
       unsubscribe();
+      localSyncChannel?.removeEventListener('message', handleLocalMsg);
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
       }
@@ -323,6 +350,7 @@ export const HostScreen: React.FC<HostScreenProps> = ({
               <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
                 {currentSubjectMeta.icon} {currentSubjectMeta.title}
               </span>
+              <DbStatusBadge />
             </div>
             <div className="text-xs text-slate-400">
               PIN Stanza LIM: <strong className="text-amber-400 tracking-widest text-sm">{pin}</strong>
