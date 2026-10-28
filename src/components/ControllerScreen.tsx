@@ -1,14 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CHARACTER_OPTIONS } from '../data/characters';
-import {
-  db,
-  ref,
-  onValue,
-  joinPlayerToRoom,
-  sendPlayerInput,
-  updatePlayerData,
-  localSyncChannel
-} from '../services/firebase';
+import { initControllerNetwork } from '../services/networkSync';
 import { soundEngine } from '../utils/audio';
 import { DbStatusBadge } from './DbStatusBadge';
 import {
@@ -37,7 +29,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
   const [joined, setJoined] = useState<boolean>(false);
   const [playerId] = useState<string>(() => `p_${Date.now()}_${Math.floor(Math.random() * 1000)}`);
 
-  // In-Game state received from Host via Firebase
+  // In-Game state received from Host via WebRTC/Firebase/BroadcastChannel
   const [score, setScore] = useState<number>(0);
   const [bombs, setBombs] = useState<number>(1);
   const [isGhost, setIsGhost] = useState<boolean>(false);
@@ -50,6 +42,9 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
   // Mini quiz state for ghost revival
   const [ghostQuizAnswered, setGhostQuizAnswered] = useState<boolean>(false);
   const [ghostFeedback, setGhostFeedback] = useState<string | null>(null);
+
+  // Network controller handle
+  const netRef = useRef<ReturnType<typeof initControllerNetwork> | null>(null);
 
   // Joystick state
   const joystickBaseRef = useRef<HTMLDivElement | null>(null);
@@ -65,49 +60,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
     if (savedName) setPlayerName(savedName);
   }, []);
 
-  // Listen to authoritative player state from Firebase & Local Broadcast once joined
-  useEffect(() => {
-    if (!joined || !pin) return;
-
-    const pRef = ref(db, `rooms/${pin}/players/${playerId}`);
-    const unsubscribe = onValue(pRef, snapshot => {
-      const data = snapshot.val();
-      if (!data) return;
-
-      if (data.score !== undefined) setScore(data.score);
-      if (data.bombs !== undefined) setBombs(data.bombs);
-      if (data.isGhost !== undefined) setIsGhost(data.isGhost);
-      if (data.questionText) setQuestionText(data.questionText);
-      if (data.targetSymbol) setTargetSymbol(data.targetSymbol);
-      if (data.spellingWord) setSpellingWord(data.spellingWord);
-      if (data.letterIndex !== undefined) setLetterIndex(data.letterIndex);
-      if (data.options) setOptions(data.options);
-    });
-
-    const handleLocalMsg = (event: MessageEvent) => {
-      const data = event.data;
-      if (!data || data.pin !== pin) return;
-      if (data.type === 'PLAYER_UPDATE' && data.playerId === playerId) {
-        const p = data.partial;
-        if (p.score !== undefined) setScore(p.score);
-        if (p.bombs !== undefined) setBombs(p.bombs);
-        if (p.isGhost !== undefined) setIsGhost(p.isGhost);
-        if (p.questionText) setQuestionText(p.questionText);
-        if (p.targetSymbol) setTargetSymbol(p.targetSymbol);
-        if (p.spellingWord) setSpellingWord(p.spellingWord);
-        if (p.letterIndex !== undefined) setLetterIndex(p.letterIndex);
-        if (p.options) setOptions(p.options);
-      }
-    };
-    localSyncChannel?.addEventListener('message', handleLocalMsg);
-
-    return () => {
-      unsubscribe();
-      localSyncChannel?.removeEventListener('message', handleLocalMsg);
-    };
-  }, [joined, pin, playerId]);
-
-  // Handle Join Game (immediate & non-blocking)
+  // Handle Join Game
   const handleJoinGame = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPin = pin.trim();
@@ -120,8 +73,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
 
     localStorage.setItem('bomberword_player_name', cleanName);
 
-    // Join asynchronously
-    joinPlayerToRoom(cleanPin, {
+    const newPlayer = {
       id: playerId,
       name: cleanName,
       color: CHARACTER_OPTIONS[selectedColorIdx].hex,
@@ -134,29 +86,48 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
       targetSymbol: '',
       joinedAt: Date.now(),
       lastPing: Date.now()
-    }).catch(err => console.warn('Firebase join notice:', err));
+    };
 
-    // Immediately open in-game touch screen!
+    // Initialize network (WebRTC direct channel to LIM Host + Firebase Realtime DB + BroadcastChannel)
+    const net = initControllerNetwork(cleanPin, newPlayer, (stateUpdate) => {
+      if (stateUpdate.score !== undefined) setScore(stateUpdate.score);
+      if (stateUpdate.bombs !== undefined) setBombs(stateUpdate.bombs);
+      if (stateUpdate.isGhost !== undefined) setIsGhost(stateUpdate.isGhost);
+      if (stateUpdate.questionText) setQuestionText(stateUpdate.questionText);
+      if (stateUpdate.targetSymbol) setTargetSymbol(stateUpdate.targetSymbol);
+      if (stateUpdate.spellingWord) setSpellingWord(stateUpdate.spellingWord);
+      if (stateUpdate.letterIndex !== undefined) setLetterIndex(stateUpdate.letterIndex);
+      if (stateUpdate.options) setOptions(stateUpdate.options);
+    });
+
+    netRef.current = net;
     setJoined(true);
   };
 
-  // Continuous input sender to Firebase (every 65ms = ~15 updates/sec, optimal for Realtime DB)
+  // Continuous input sender (every 45ms for buttery-smooth joystick)
   useEffect(() => {
     if (!joined || !pin) return;
 
     inputIntervalRef.current = window.setInterval(() => {
-      sendPlayerInput(pin, playerId, {
+      netRef.current?.sendInput({
         dx: currentVectorRef.current.dx,
         dy: currentVectorRef.current.dy,
         bombSeq: bombSeqRef.current,
         updatedAt: Date.now()
-      }).catch(() => {});
-    }, 65);
+      });
+    }, 45);
 
     return () => {
       if (inputIntervalRef.current) clearInterval(inputIntervalRef.current);
     };
-  }, [joined, pin, playerId]);
+  }, [joined, pin]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      netRef.current?.disconnect();
+    };
+  }, []);
 
   // Virtual Joystick touch/pointer handlers
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -236,10 +207,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
       // Correct!
       setGhostFeedback('Corretto! Sei tornato in vita! 🌟');
       soundEngine.playCorrect();
-      updatePlayerData(pin, playerId, {
-        reviveTrigger: true,
-        isGhost: false
-      });
+      netRef.current?.sendRevive();
       setTimeout(() => {
         setGhostFeedback(null);
         setGhostQuizAnswered(false);

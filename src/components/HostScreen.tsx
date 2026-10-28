@@ -3,7 +3,7 @@ import { GameEngine } from '../game/GameEngine';
 import { SubjectType, SUBJECTS } from '../data/educationalData';
 import { CHARACTER_OPTIONS } from '../data/characters';
 import { soundEngine } from '../utils/audio';
-import { db, ref, onValue, update, localSyncChannel } from '../services/firebase';
+import { initHostNetwork, broadcastHostState, PlayerSyncData, PlayerInput } from '../services/networkSync';
 import { DbStatusBadge } from './DbStatusBadge';
 import QRCode from 'qrcode';
 import confetti from 'canvas-confetti';
@@ -68,7 +68,44 @@ export const HostScreen: React.FC<HostScreenProps> = ({
       .catch(console.error);
   }, [activeControllerUrl]);
 
-  // Initialize Game Engine
+  // Sync state helper
+  const refreshPlayersList = useCallback(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+
+    const list: typeof playersList = [];
+    const updates: Record<string, Partial<PlayerSyncData>> = {};
+
+    engine.players.forEach(p => {
+      list.push({
+        id: p.id,
+        name: p.name,
+        colorIdx: p.colorIdx,
+        score: p.score,
+        bombs: p.bombs,
+        isGhost: p.isGhost,
+        questionText: p.questionText,
+        targetSymbol: p.targetSymbol
+      });
+
+      updates[p.id] = {
+        score: p.score,
+        bombs: p.bombs,
+        isGhost: p.isGhost,
+        questionText: p.questionText,
+        targetSymbol: p.targetSymbol,
+        spellingWord: p.spellingWord,
+        letterIndex: p.letterIndex,
+        options: p.options,
+        correctAnswer: p.correctAnswer
+      };
+    });
+
+    setPlayersList(list);
+    broadcastHostState(pin, updates);
+  }, [pin]);
+
+  // Initialize Game Engine & Network Listeners (WebRTC P2P + Firebase + BroadcastChannel)
   useEffect(() => {
     const engine = new GameEngine();
     engine.subject = subject;
@@ -76,118 +113,52 @@ export const HostScreen: React.FC<HostScreenProps> = ({
     engine.gameTimerSeconds = durationMinutes * 60;
     engineRef.current = engine;
 
-    // Listen to Firebase players in this room
-    const playersRef = ref(db, `rooms/${pin}/players`);
-    const unsubscribe = onValue(playersRef, (snapshot) => {
-      const data = snapshot.val();
-      if (!data) return;
-
-      Object.entries(data).forEach(([playerId, pData]: [string, any]) => {
-        if (!pData) return;
-        const p = engine.addOrUpdatePlayer(
-          playerId,
+    const cleanupNetwork = initHostNetwork(
+      pin,
+      // onPlayerJoin
+      (pData: PlayerSyncData) => {
+        engine.addOrUpdatePlayer(
+          pData.id,
           pData.name || `Player`,
           pData.colorIdx ?? 0,
           subject
         );
-
-        // Apply controller inputs
-        if (pData.input) {
-          engine.updatePlayerInput(
-            playerId,
-            pData.input.dx || 0,
-            pData.input.dy || 0,
-            pData.input.bombSeq || 0
-          );
-        }
-
-        // Check if ghost revived from tablet mini quiz
-        if (pData.reviveTrigger && p.isGhost) {
-          engine.reviveGhost(playerId);
-          update(ref(db, `rooms/${pin}/players/${playerId}`), { reviveTrigger: false });
-        }
-      });
-    });
-
-    // Local BroadcastChannel listener for instant cross-tab sync without network lag
-    const handleLocalMsg = (event: MessageEvent) => {
-      const data = event.data;
-      if (!data || data.pin !== pin) return;
-
-      if (data.type === 'PLAYER_JOIN' && data.player) {
-        engine.addOrUpdatePlayer(
-          data.player.id,
-          data.player.name,
-          data.player.colorIdx,
-          subject
-        );
-      } else if (data.type === 'PLAYER_INPUT' && data.input) {
+        refreshPlayersList();
+      },
+      // onPlayerInput
+      (pId: string, input: PlayerInput) => {
         engine.updatePlayerInput(
-          data.playerId,
-          data.input.dx || 0,
-          data.input.dy || 0,
-          data.input.bombSeq || 0
+          pId,
+          input.dx || 0,
+          input.dy || 0,
+          input.bombSeq || 0
         );
-      } else if (data.type === 'PLAYER_LEAVE') {
-        engine.removePlayer(data.playerId);
+      },
+      // onPlayerRevive
+      (pId: string) => {
+        engine.reviveGhost(pId);
+        refreshPlayersList();
       }
-    };
-    localSyncChannel?.addEventListener('message', handleLocalMsg);
+    );
 
     return () => {
-      unsubscribe();
-      localSyncChannel?.removeEventListener('message', handleLocalMsg);
+      cleanupNetwork();
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
       }
     };
-  }, [pin, subject, mysteryBoxes, durationMinutes]);
+  }, [pin, subject, mysteryBoxes, durationMinutes, refreshPlayersList]);
 
-  // Authoritative Firebase sync loop (Host pushes authoritative player state every 300ms)
+  // Periodic state broadcast to all controllers (every 200ms)
   useEffect(() => {
     const syncInterval = setInterval(() => {
-      const engine = engineRef.current;
-      if (!engine || isGameOver) return;
-
-      const updates: Record<string, any> = {};
-      const currentList: typeof playersList = [];
-
-      engine.players.forEach(p => {
-        updates[`rooms/${pin}/players/${p.id}/score`] = p.score;
-        updates[`rooms/${pin}/players/${p.id}/bombs`] = p.bombs;
-        updates[`rooms/${pin}/players/${p.id}/isGhost`] = p.isGhost;
-        updates[`rooms/${pin}/players/${p.id}/questionText`] = p.questionText;
-        updates[`rooms/${pin}/players/${p.id}/targetSymbol`] = p.targetSymbol;
-        updates[`rooms/${pin}/players/${p.id}/spellingWord`] = p.spellingWord || '';
-        updates[`rooms/${pin}/players/${p.id}/letterIndex`] = p.letterIndex ?? 0;
-        if (p.options) {
-          updates[`rooms/${pin}/players/${p.id}/options`] = p.options;
-        }
-
-        currentList.push({
-          id: p.id,
-          name: p.name,
-          colorIdx: p.colorIdx,
-          score: p.score,
-          bombs: p.bombs,
-          isGhost: p.isGhost,
-          questionText: p.questionText,
-          targetSymbol: p.targetSymbol
-        });
-      });
-
-      // Update local scoreboard state
-      setPlayersList(currentList);
-
-      if (Object.keys(updates).length > 0) {
-        update(ref(db), updates).catch(err => {
-          // Silent catch for intermittent network issues
-        });
+      if (!isGameOver) {
+        refreshPlayersList();
       }
-    }, 300);
+    }, 200);
 
     return () => clearInterval(syncInterval);
-  }, [pin, isGameOver]);
+  }, [isGameOver, refreshPlayersList]);
 
   // Main 60 FPS Render & Physics Loop
   useEffect(() => {
