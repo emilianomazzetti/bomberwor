@@ -81,20 +81,22 @@ export const HostScreen: React.FC<HostScreenProps> = ({
     const updates: Record<string, Partial<PlayerSyncData>> = {};
 
     engine.players.forEach(p => {
-      list.push({
-        id: p.id,
-        name: p.name,
-        colorIdx: p.colorIdx,
-        score: p.score,
-        bombs: p.bombs,
-        isGhost: p.isGhost,
-        questionText: p.questionText,
-        targetSymbol: p.targetSymbol,
-        speedBonus: p.speedBonus,
-        rangeBonus: p.rangeBonus,
-        extraBombsBonus: p.extraBombsBonus,
-        completedItems: [...p.completedItems]
-      });
+      if (!p.isAdversary) {
+        list.push({
+          id: p.id,
+          name: p.name,
+          colorIdx: p.colorIdx,
+          score: p.score,
+          bombs: p.bombs,
+          isGhost: p.isGhost,
+          questionText: p.questionText,
+          targetSymbol: p.targetSymbol,
+          speedBonus: p.speedBonus,
+          rangeBonus: p.rangeBonus,
+          extraBombsBonus: p.extraBombsBonus,
+          completedItems: [...p.completedItems]
+        });
+      }
 
       updates[p.id] = {
         score: p.score,
@@ -109,7 +111,8 @@ export const HostScreen: React.FC<HostScreenProps> = ({
         speedBonus: p.speedBonus,
         rangeBonus: p.rangeBonus,
         extraBombsBonus: p.extraBombsBonus,
-        completedItems: [...p.completedItems]
+        completedItems: [...p.completedItems],
+        bombRechargeSeconds: p.bombRechargeTimer > 0 ? Math.ceil(p.bombRechargeTimer / 60) : 0
       };
     });
 
@@ -393,8 +396,8 @@ export const HostScreen: React.FC<HostScreenProps> = ({
         <div className="flex-1 flex items-center justify-center relative bg-slate-900 rounded-2xl border-2 border-slate-800 p-2 shadow-2xl overflow-hidden min-h-[460px]">
           <canvas
             ref={canvasRef}
-            width={960}
-            height={832}
+            width={1050}
+            height={650}
             className="w-full h-full max-h-[85vh] object-contain rounded-xl shadow-inner border border-slate-800"
           />
 

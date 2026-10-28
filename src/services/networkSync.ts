@@ -67,6 +67,7 @@ export interface PlayerSyncData {
   rangeBonus?: number;       // count of flames collected (up to 5)
   extraBombsBonus?: number;  // extra bomb capacity
   completedItems?: string[]; // list of completed words/operations
+  bombRechargeSeconds?: number; // 3-second cooldown countdown when bombs are exhausted
   input?: PlayerInput;
   reviveTrigger?: boolean;
   joinedAt: number;

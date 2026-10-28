@@ -30,7 +30,7 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install --no-package-lock
 
       - name: Build static site
         run: npm run build

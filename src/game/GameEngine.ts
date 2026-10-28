@@ -3,7 +3,7 @@ import { CHARACTER_OPTIONS } from '../data/characters';
 import { SubjectType, getInitialQuestion, getNextQuestion } from '../data/educationalData';
 import confetti from 'canvas-confetti';
 
-export const GRID_COLS = 15;
+export const GRID_COLS = 21;
 export const GRID_ROWS = 13;
 
 export const TILE_EMPTY = 0;
@@ -91,6 +91,13 @@ export interface EnginePlayer {
   rangeBonus: number;       // count of flames (up to 5)
   extraBombsBonus: number;  // extra bomb slots
   completedItems: string[]; // history of solved words/operations
+  bombRechargeTimer: number; // 3-second cooldown countdown when bombs are exhausted
+
+  // Autonomous bot properties
+  isBot?: boolean;
+  isAdversary?: boolean;
+  botAiTimer?: number;
+  botBombTimer?: number;
   
   // Educational progress
   subject: SubjectType;
@@ -189,10 +196,103 @@ export class GameEngine {
     this.floatingTexts = [];
     this.eduTiles = [];
     this.bonusItems = [];
+    this.initAdversaryBots();
     this.repopulateEduTiles();
   }
 
+  public initAdversaryBots() {
+    // 2 enemy bots moving at reduced speed and dropping bombs randomly at regular intervals
+    const bot1Id = 'adversary_bot_1';
+    const bot2Id = 'adversary_bot_2';
+
+    this.players.delete(bot1Id);
+    this.players.delete(bot2Id);
+
+    const initialQ1 = getInitialQuestion(this.subject, 1);
+    const initialQ2 = getInitialQuestion(this.subject, 2);
+
+    const bot1: EnginePlayer = {
+      id: bot1Id,
+      name: 'Robo-Alfa 🤖',
+      colorIdx: 0, // Red
+      x: GRID_COLS - 2 + 0.5,
+      y: 1.5,
+      vx: 0,
+      vy: 0,
+      direction: 'left',
+      frame: 0,
+      speed: 0.05, // Reduced speed as requested
+      bombs: 1,
+      maxBombs: 2,
+      bombRange: 2,
+      score: 0,
+      isGhost: false,
+      stunnedUntil: 0,
+      lastBombSeq: 0,
+      speedBonus: 0,
+      rangeBonus: 0,
+      extraBombsBonus: 0,
+      completedItems: [],
+      bombRechargeTimer: 0,
+      isBot: true,
+      isAdversary: true,
+      botAiTimer: 30,
+      botBombTimer: 240 + Math.floor(Math.random() * 120),
+      subject: this.subject,
+      questionText: initialQ1.questionText,
+      targetSymbol: initialQ1.targetSymbol,
+      spellingWord: initialQ1.spellingWord,
+      letterIndex: initialQ1.letterIndex,
+      wordsCompleted: 0,
+      input: { dx: -1, dy: 0, bombSeq: 0 }
+    };
+
+    const bot2: EnginePlayer = {
+      id: bot2Id,
+      name: 'Robo-Beta 🤖',
+      colorIdx: 4, // Purple
+      x: 1.5,
+      y: GRID_ROWS - 2 + 0.5,
+      vx: 0,
+      vy: 0,
+      direction: 'right',
+      frame: 0,
+      speed: 0.05, // Reduced speed as requested
+      bombs: 1,
+      maxBombs: 2,
+      bombRange: 2,
+      score: 0,
+      isGhost: false,
+      stunnedUntil: 0,
+      lastBombSeq: 0,
+      speedBonus: 0,
+      rangeBonus: 0,
+      extraBombsBonus: 0,
+      completedItems: [],
+      bombRechargeTimer: 0,
+      isBot: true,
+      isAdversary: true,
+      botAiTimer: 45,
+      botBombTimer: 360 + Math.floor(Math.random() * 120),
+      subject: this.subject,
+      questionText: initialQ2.questionText,
+      targetSymbol: initialQ2.targetSymbol,
+      spellingWord: initialQ2.spellingWord,
+      letterIndex: initialQ2.letterIndex,
+      wordsCompleted: 0,
+      input: { dx: 1, dy: 0, bombSeq: 0 }
+    };
+
+    this.players.set(bot1Id, bot1);
+    this.players.set(bot2Id, bot2);
+  }
+
   public repopulateEduTiles() {
+    // In math mode, strictly purge any tile that is not a single digit 0-9
+    if (this.subject === 'matematica') {
+      this.eduTiles = this.eduTiles.filter(t => /^[0-9]$/.test(t.symbol));
+    }
+
     // Collect all open walkable empty tiles
     const emptySpots: { x: number; y: number }[] = [];
     for (let y = 1; y < GRID_ROWS - 1; y++) {
@@ -206,20 +306,25 @@ export class GameEngine {
       }
     }
 
-    // Determine target symbols currently needed by active players
+    // Determine target symbols currently needed by active human players
     const neededSymbols: string[] = [];
     this.players.forEach(p => {
-      if (!p.isGhost && p.targetSymbol) {
-        neededSymbols.push(p.targetSymbol);
+      if (!p.isAdversary && !p.isGhost && p.targetSymbol) {
+        if (this.subject === 'matematica') {
+          if (/^[0-9]$/.test(p.targetSymbol)) {
+            neededSymbols.push(p.targetSymbol);
+          }
+        } else {
+          neededSymbols.push(p.targetSymbol);
+        }
       }
     });
 
-    // Distractor alphabet or numbers
     const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    const numbers = ['12', '18', '24', '36', '42', '45', '48', '54', '56', '63', '64', '72', '81', '9'];
+    const mathDigits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
-    // Ensure we have at least 6 to 12 educational tiles on the board
-    const desiredCount = Math.min(10, emptySpots.length);
+    // Ensure we have at least 10 to 14 educational tiles on the wider board
+    const desiredCount = Math.min(12, emptySpots.length);
     while (this.eduTiles.length < desiredCount && emptySpots.length > 0) {
       const idx = Math.floor(Math.random() * emptySpots.length);
       const spot = emptySpots.splice(idx, 1)[0];
@@ -229,7 +334,7 @@ export class GameEngine {
         symbol = neededSymbols.shift()!;
       } else {
         if (this.subject === 'matematica') {
-          symbol = numbers[Math.floor(Math.random() * numbers.length)];
+          symbol = mathDigits[Math.floor(Math.random() * mathDigits.length)];
         } else {
           symbol = alphabet[Math.floor(Math.random() * alphabet.length)];
         }
@@ -256,15 +361,15 @@ export class GameEngine {
       // Find spawn location based on player count
       const spawns = [
         { x: 1, y: 1 },
-        { x: GRID_COLS - 2, y: 1 },
-        { x: 1, y: GRID_ROWS - 2 },
         { x: GRID_COLS - 2, y: GRID_ROWS - 2 },
         { x: Math.floor(GRID_COLS / 2), y: 1 },
         { x: Math.floor(GRID_COLS / 2), y: GRID_ROWS - 2 },
         { x: 1, y: Math.floor(GRID_ROWS / 2) },
         { x: GRID_COLS - 2, y: Math.floor(GRID_ROWS / 2) },
         { x: 3, y: 1 },
-        { x: GRID_COLS - 4, y: GRID_ROWS - 2 }
+        { x: GRID_COLS - 4, y: GRID_ROWS - 2 },
+        { x: 1, y: 3 },
+        { x: GRID_COLS - 2, y: 3 }
       ];
       const spawn = spawns[this.players.size % spawns.length];
       const initialQ = getInitialQuestion(initialSubject, this.players.size);
@@ -291,6 +396,7 @@ export class GameEngine {
         rangeBonus: 0,
         extraBombsBonus: 0,
         completedItems: [],
+        bombRechargeTimer: 0,
         subject: initialSubject,
         questionText: initialQ.questionText,
         targetSymbol: initialQ.targetSymbol,
@@ -415,7 +521,15 @@ export class GameEngine {
           if (roll < 0.40) {
             // Drop an educational tile!
             const playerOwner = this.players.get(bomb.ownerId);
-            const symbol = playerOwner ? playerOwner.targetSymbol : 'A';
+            let symbol = playerOwner ? playerOwner.targetSymbol : '';
+            if (this.subject === 'matematica') {
+              if (!symbol || !/^[0-9]$/.test(symbol)) {
+                symbol = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'][Math.floor(Math.random() * 10)];
+              }
+            } else {
+              if (!symbol) symbol = 'A';
+            }
+
             this.eduTiles.push({
               x: nx,
               y: ny,
@@ -423,7 +537,7 @@ export class GameEngine {
               subject: this.subject,
               bobOffset: Math.random() * Math.PI * 2
             });
-            this.addFloatingText(nx + 0.5, ny + 0.5, 'LETTERA! 🔤', '#38bdf8');
+            this.addFloatingText(nx + 0.5, ny + 0.5, this.subject === 'matematica' ? 'NUMERO! 🔢' : 'LETTERA! 🔤', '#38bdf8');
           } else if (roll < 0.85) {
             // Drop a Bonus Item!
             const bonusPool: BonusType[] = [
@@ -499,12 +613,31 @@ export class GameEngine {
   public update() {
     const now = Date.now();
 
+    // 0. Update adversary enemy bots AI
+    this.updateAdversaryBots(now);
+
     // 1. Update players
     this.players.forEach(player => {
       // Handle bomb dropping trigger from input
       if (player.input.bombSeq > player.lastBombSeq) {
         player.lastBombSeq = player.input.bombSeq;
         this.dropBomb(player);
+      }
+
+      // Automatic bomb recharge when player has 0 bombs (3-second cooldown)
+      if (player.bombs <= 0 && !player.isGhost) {
+        if (player.bombRechargeTimer <= 0) {
+          player.bombRechargeTimer = 180; // 3 seconds at 60fps
+        } else {
+          player.bombRechargeTimer -= 1;
+          if (player.bombRechargeTimer <= 0) {
+            player.bombs = 1;
+            soundEngine.playCorrect();
+            this.addFloatingText(player.x, player.y - 0.3, '+1 BOMBA RICARICATA! 💣', '#22c55e');
+          }
+        }
+      } else {
+        player.bombRechargeTimer = 0;
       }
 
       // Check if stunned
@@ -543,11 +676,11 @@ export class GameEngine {
         }
       }
 
-      // Check collision with educational tiles
-      this.checkPlayerTileCollisions(player, now);
-
-      // Check collision with mystery bonus items
-      this.checkPlayerBonusCollisions(player);
+      // Check collision with educational tiles (only human players)
+      if (!player.isAdversary) {
+        this.checkPlayerTileCollisions(player, now);
+        this.checkPlayerBonusCollisions(player);
+      }
     });
 
     // 2. Update bombs & clear allowedPlayers once players step away
@@ -590,17 +723,25 @@ export class GameEngine {
           if (dist < 0.65) {
             // Player hit by explosion!
             p.isGhost = true;
-            // Se fai esplodere un personaggio o lui muore si annullano tutti i bonus
-            p.speed = 0.11;
-            p.speedBonus = 0;
-            p.bombRange = 2;
-            p.rangeBonus = 0;
-            p.maxBombs = 3;
-            p.extraBombsBonus = 0;
-            p.bombs = 1;
+            if (p.isAdversary) {
+              p.stunnedUntil = now + 3000;
+              p.bombs = 1;
+              soundEngine.playWrong();
+              this.addFloatingText(p.x, p.y, 'NEMICO COLPITO! 💥', '#ef4444');
+            } else {
+              // Se fai esplodere un personaggio o lui muore si annullano tutti i bonus
+              p.speed = 0.11;
+              p.speedBonus = 0;
+              p.bombRange = 2;
+              p.rangeBonus = 0;
+              p.maxBombs = 3;
+              p.extraBombsBonus = 0;
+              p.bombs = 1;
+              p.bombRechargeTimer = 0;
 
-            soundEngine.playWrong();
-            this.addFloatingText(p.x, p.y, 'BONUS ANNULLATI! 💥', '#ef4444');
+              soundEngine.playWrong();
+              this.addFloatingText(p.x, p.y, 'BONUS ANNULLATI! 💥', '#ef4444');
+            }
           }
         }
       });
@@ -632,9 +773,105 @@ export class GameEngine {
     }
 
     // Ensure educational tiles remain stocked
-    if (this.eduTiles.length < 6) {
+    if (this.eduTiles.length < 8) {
       this.repopulateEduTiles();
     }
+  }
+
+  /**
+   * Autonomous AI for the 2 adversary bots
+   * They move at reduced speed (0.05) and drop bombs randomly at regular intervals (6-9s)
+   */
+  private updateAdversaryBots(now: number) {
+    this.players.forEach(p => {
+      if (!p.isAdversary) return;
+
+      // If defeated / ghost, auto repair and respawn in their corner after 3 seconds
+      if (p.isGhost) {
+        if (now > p.stunnedUntil) {
+          p.isGhost = false;
+          p.bombs = 1;
+          p.x = p.id.includes('1') ? GRID_COLS - 1.5 : 1.5;
+          p.y = p.id.includes('1') ? 1.5 : GRID_ROWS - 1.5;
+          this.addFloatingText(p.x, p.y, 'NEMICO RIGENERATO! 🤖', '#a855f7');
+        }
+        return;
+      }
+
+      p.botAiTimer = (p.botAiTimer || 0) - 1;
+      p.botBombTimer = (p.botBombTimer || 240) - 1;
+
+      const tileX = Math.floor(p.x);
+      const tileY = Math.floor(p.y);
+      const offsetX = Math.abs(p.x - (tileX + 0.5));
+      const offsetY = Math.abs(p.y - (tileY + 0.5));
+      const isNearCenter = offsetX < 0.15 && offsetY < 0.15;
+
+      // Steering / Path selection
+      if (p.botAiTimer <= 0 || isNearCenter) {
+        p.botAiTimer = 35 + Math.floor(Math.random() * 25);
+
+        const candidates: { dx: number; dy: number; dir: EnginePlayer['direction'] }[] = [
+          { dx: 0, dy: -1, dir: 'up' },
+          { dx: 0, dy: 1, dir: 'down' },
+          { dx: -1, dy: 0, dir: 'left' },
+          { dx: 1, dy: 0, dir: 'right' }
+        ];
+
+        const openDirs = candidates.filter(c => {
+          const nx = tileX + c.dx;
+          const ny = tileY + c.dy;
+          if (nx <= 0 || nx >= GRID_COLS - 1 || ny <= 0 || ny >= GRID_ROWS - 1) return false;
+          const cell = this.grid[ny][nx];
+          if (cell === TILE_WALL || cell === TILE_CRATE) return false;
+          const hasBomb = this.bombs.some(b => b.x === nx && b.y === ny);
+          if (hasBomb) return false;
+          return true;
+        });
+
+        if (openDirs.length > 0) {
+          const keepGoing = openDirs.find(d => d.dir === p.direction);
+          if (keepGoing && Math.random() < 0.70) {
+            p.input.dx = keepGoing.dx;
+            p.input.dy = keepGoing.dy;
+          } else {
+            const chosen = openDirs[Math.floor(Math.random() * openDirs.length)];
+            p.input.dx = chosen.dx;
+            p.input.dy = chosen.dy;
+          }
+        } else {
+          // If trapped, reverse
+          p.input.dx = -p.input.dx;
+          p.input.dy = -p.input.dy;
+        }
+      }
+
+      // Random bomb dropping at regular intervals (every 6 to 9 seconds)
+      if (p.botBombTimer <= 0 && p.bombs > 0 && !p.isGhost) {
+        const nearCrate = [
+          { x: tileX + 1, y: tileY },
+          { x: tileX - 1, y: tileY },
+          { x: tileX, y: tileY + 1 },
+          { x: tileX, y: tileY - 1 }
+        ].some(c => {
+          if (c.x >= 0 && c.x < GRID_COLS && c.y >= 0 && c.y < GRID_ROWS) {
+            return this.grid[c.y][c.x] === TILE_CRATE;
+          }
+          return false;
+        });
+
+        if (nearCrate || Math.random() < 0.45) {
+          this.dropBomb(p);
+          // Instantly reverse direction to safely move away from own bomb!
+          p.input.dx = -p.input.dx;
+          p.input.dy = -p.input.dy;
+          p.botAiTimer = 40;
+        }
+
+        // Schedule next bomb in 360 to 540 frames (~6 to 9 seconds)
+        p.botBombTimer = 360 + Math.floor(Math.random() * 180);
+      }
+    });
   }
 
   /**
@@ -759,9 +996,9 @@ export class GameEngine {
             if (player.subject === 'ortografia' || player.subject === 'inglese') {
               solvedItem = currentSpelling || player.spellingWord || currentSymbol;
             } else if (player.subject === 'matematica') {
-              solvedItem = currentPrompt.includes('=')
-                ? currentPrompt.replace('?', currentSymbol).trim()
-                : `${currentPrompt} = ${currentSymbol}`;
+              const fullAns = currentAnswer || currentSpelling || '';
+              const cleanPrompt = currentPrompt.split('[')[0].replace('?', '').replace('=', '').trim();
+              solvedItem = cleanPrompt ? `${cleanPrompt} = ${fullAns}` : fullAns;
             } else if (player.subject === 'verbi') {
               solvedItem = currentAnswer || currentSymbol;
             } else {
@@ -1279,13 +1516,24 @@ export class GameEngine {
     }
 
     // Name tag & current target badge above head
+    if (player.isAdversary) {
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.roundRect(px - 26, py - tileH * 0.76, 52, 14, 4);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 9px "Fredoka", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('⚡ NEMICO', px, py - tileH * 0.76 + 10);
+    }
+
     ctx.font = 'bold 11px "Fredoka", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = '#000000';
     ctx.fillText(player.name, px, py - tileH * 0.52);
 
-    // Target letter / question hint pill
-    if (!player.isGhost && player.targetSymbol) {
+    // Target letter / question hint pill (only for human players)
+    if (!player.isGhost && player.targetSymbol && !player.isAdversary) {
       const badgeW = 28;
       const badgeH = 18;
       const badgeX = px - badgeW / 2;

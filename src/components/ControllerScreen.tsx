@@ -42,6 +42,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
   const [rangeBonus, setRangeBonus] = useState<number>(0);
   const [extraBombsBonus, setExtraBombsBonus] = useState<number>(0);
   const [completedItems, setCompletedItems] = useState<string[]>([]);
+  const [bombRechargeSec, setBombRechargeSec] = useState<number>(0);
 
   // Mini quiz state for ghost revival
   const [ghostQuizAnswered, setGhostQuizAnswered] = useState<boolean>(false);
@@ -106,6 +107,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
       if (stateUpdate.rangeBonus !== undefined) setRangeBonus(stateUpdate.rangeBonus);
       if (stateUpdate.extraBombsBonus !== undefined) setExtraBombsBonus(stateUpdate.extraBombsBonus);
       if (stateUpdate.completedItems !== undefined) setCompletedItems(stateUpdate.completedItems);
+      if (stateUpdate.bombRechargeSeconds !== undefined) setBombRechargeSec(stateUpdate.bombRechargeSeconds);
     });
 
     netRef.current = net;
@@ -195,7 +197,6 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
   const handleDropBomb = () => {
     if (isGhost) return;
     if (bombs <= 0) {
-      // Haptic bump
       if ('vibrate' in navigator) navigator.vibrate(30);
       return;
     }
@@ -203,6 +204,14 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
     bombSeqRef.current += 1;
     // Immediate local decrement for snappy feel
     setBombs(prev => Math.max(0, prev - 1));
+
+    // Instantly send input with current vector to maintain uninterrupted movement!
+    netRef.current?.sendInput({
+      dx: currentVectorRef.current.dx,
+      dy: currentVectorRef.current.dy,
+      bombSeq: bombSeqRef.current,
+      updatedAt: Date.now()
+    });
 
     if ('vibrate' in navigator) {
       navigator.vibrate([40, 30, 40]);
@@ -508,20 +517,32 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
         {/* 2. Right Side: Big "SGANCIA BOMBA" Action Button */}
         <div className="flex flex-col items-center justify-center">
           <button
+            type="button"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleDropBomb();
+            }}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleDropBomb();
+            }}
             onClick={handleDropBomb}
-            disabled={bombs <= 0 || isGhost}
-            className={`w-40 h-40 sm:w-52 sm:h-52 rounded-full border-4 shadow-2xl flex flex-col items-center justify-center transition-all transform active:scale-90 active:shadow-inner ${
+            disabled={isGhost}
+            style={{ touchAction: 'none' }}
+            className={`w-40 h-40 sm:w-52 sm:h-52 rounded-full border-4 shadow-2xl flex flex-col items-center justify-center transition-all transform active:scale-90 active:shadow-inner select-none ${
               bombs > 0 && !isGhost
                 ? 'bg-gradient-to-tr from-red-600 via-orange-600 to-amber-500 hover:from-red-500 hover:to-amber-400 border-amber-300 cursor-pointer shadow-red-500/30'
-                : 'bg-slate-800 border-slate-700 opacity-50 cursor-not-allowed'
+                : 'bg-slate-900 border-amber-500/60 ring-4 ring-amber-500/20 shadow-lg cursor-not-allowed opacity-90'
             }`}
           >
-            <Bomb className="w-12 h-12 sm:w-16 sm:h-16 text-white drop-shadow mb-1 animate-pulse" />
-            <span className="font-black text-white text-base sm:text-xl uppercase tracking-wider drop-shadow">
-              SGANCIA BOMBA
+            <Bomb className={`w-12 h-12 sm:w-16 sm:h-16 drop-shadow mb-1 ${bombs > 0 ? 'text-white animate-pulse' : 'text-amber-400 animate-bounce'}`} />
+            <span className="font-black text-white text-base sm:text-xl uppercase tracking-wider drop-shadow mt-0.5">
+              {bombs > 0 ? 'SGANCIA BOMBA' : 'RICARICA...'}
             </span>
-            <span className="text-xs font-bold text-amber-200 mt-1">
-              {bombs > 0 ? `${bombs} pronte` : 'Raccogli tessere!'}
+            <span className={`text-xs font-bold mt-1 text-center px-2 ${bombs > 0 ? 'text-amber-200' : 'text-amber-300'}`}>
+              {bombs > 0 ? `${bombs} pronte` : `⏳ Nuova bomba in ${bombRechargeSec || 3}s`}
             </span>
           </button>
           <span className="text-xs text-slate-400 font-semibold mt-2">

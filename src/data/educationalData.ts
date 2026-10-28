@@ -203,14 +203,26 @@ export function getInitialQuestion(subject: SubjectType, playerIndex: number = 0
     };
   }
 
-  // Matematica
+  // Matematica (Composizione sequenziale cifra per cifra)
   const q = MATH_QUESTIONS[playerIndex % MATH_QUESTIONS.length];
-  const opts = shuffleArray([q.correct, ...q.distractors]);
+  const targetNumber = q.correct;
+  const firstDigit = targetNumber[0];
+  const totalDigits = targetNumber.length;
+  const promptText = totalDigits > 1
+    ? `${q.prompt} [Cifra 1/${totalDigits}: cerca ${firstDigit}]`
+    : `${q.prompt} [Cerca: ${firstDigit}]`;
+
+  // Ghost quiz options: only single digits 0-9
+  const digitDistractors = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].filter(d => d !== firstDigit);
+  const mathOpts = shuffleArray([firstDigit, ...shuffleArray(digitDistractors).slice(0, 3)]);
+
   return {
-    questionText: q.prompt,
-    targetSymbol: q.correct,
-    correctAnswer: q.correct,
-    options: opts
+    questionText: promptText,
+    targetSymbol: firstDigit,
+    spellingWord: targetNumber,
+    letterIndex: 0,
+    correctAnswer: targetNumber,
+    options: mathOpts
   };
 }
 
@@ -268,16 +280,49 @@ export function getNextQuestion(
     };
   }
 
-  // Matematica
-  const q = MATH_QUESTIONS[(advanceTotal + 1) % MATH_QUESTIONS.length];
-  const opts = shuffleArray([q.correct, ...q.distractors]);
-  return {
-    questionText: q.prompt,
-    targetSymbol: q.correct,
-    correctAnswer: q.correct,
-    options: opts,
-    isWordCompleted: true
-  };
+  // Matematica (Composizione sequenziale cifra per cifra)
+  const currentAnswer = currentSpellingWord || '36';
+  const nextIdx = currentLetterIndex + 1;
+
+  if (nextIdx < currentAnswer.length) {
+    // Current multi-digit number not yet completed (e.g. got 3, now need 6)
+    const nextDigit = currentAnswer[nextIdx];
+    const partial = currentAnswer.substring(0, nextIdx) + ' _';
+    const digitDistractors = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].filter(d => d !== nextDigit);
+    const mathOpts = shuffleArray([nextDigit, ...shuffleArray(digitDistractors).slice(0, 3)]);
+
+    return {
+      questionText: `Risultato: ${partial} [Cifra ${nextIdx + 1}/${currentAnswer.length}: cerca ${nextDigit}]`,
+      targetSymbol: nextDigit,
+      spellingWord: currentAnswer,
+      letterIndex: nextIdx,
+      isWordCompleted: false,
+      correctAnswer: currentAnswer,
+      options: mathOpts
+    };
+  } else {
+    // Completed full number! Move to next math operation
+    const q = MATH_QUESTIONS[(advanceTotal + 1) % MATH_QUESTIONS.length];
+    const newAnswer = q.correct;
+    const firstDigit = newAnswer[0];
+    const totalDigits = newAnswer.length;
+    const promptText = totalDigits > 1
+      ? `${q.prompt} [Cifra 1/${totalDigits}: cerca ${firstDigit}]`
+      : `${q.prompt} [Cerca: ${firstDigit}]`;
+
+    const digitDistractors = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].filter(d => d !== firstDigit);
+    const mathOpts = shuffleArray([firstDigit, ...shuffleArray(digitDistractors).slice(0, 3)]);
+
+    return {
+      questionText: promptText,
+      targetSymbol: firstDigit,
+      spellingWord: newAnswer,
+      letterIndex: 0,
+      isWordCompleted: true,
+      correctAnswer: newAnswer,
+      options: mathOpts
+    };
+  }
 }
 
 export function shuffleArray<T>(arr: T[]): T[] {
