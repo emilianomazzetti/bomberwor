@@ -57,6 +57,10 @@ export const HostScreen: React.FC<HostScreenProps> = ({
     isGhost: boolean;
     questionText: string;
     targetSymbol: string;
+    speedBonus?: number;
+    rangeBonus?: number;
+    extraBombsBonus?: number;
+    completedItems?: string[];
   }>>([]);
 
   const activeControllerUrl = `${window.location.origin}${window.location.pathname}?mode=controller&room=${pin}`;
@@ -85,7 +89,11 @@ export const HostScreen: React.FC<HostScreenProps> = ({
         bombs: p.bombs,
         isGhost: p.isGhost,
         questionText: p.questionText,
-        targetSymbol: p.targetSymbol
+        targetSymbol: p.targetSymbol,
+        speedBonus: p.speedBonus,
+        rangeBonus: p.rangeBonus,
+        extraBombsBonus: p.extraBombsBonus,
+        completedItems: [...p.completedItems]
       });
 
       updates[p.id] = {
@@ -97,7 +105,11 @@ export const HostScreen: React.FC<HostScreenProps> = ({
         spellingWord: p.spellingWord,
         letterIndex: p.letterIndex,
         options: p.options,
-        correctAnswer: p.correctAnswer
+        correctAnswer: p.correctAnswer,
+        speedBonus: p.speedBonus,
+        rangeBonus: p.rangeBonus,
+        extraBombsBonus: p.extraBombsBonus,
+        completedItems: [...p.completedItems]
       };
     });
 
@@ -471,18 +483,55 @@ export const HostScreen: React.FC<HostScreenProps> = ({
                               {player.targetSymbol || '...'}
                             </span>
                           </div>
+
+                          {/* Completed Words / Operations Badges in Live Scoreboard */}
+                          {player.completedItems && player.completedItems.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1 mt-1 max-w-[200px]">
+                              {player.completedItems.map((item, idx) => (
+                                <span
+                                  key={idx}
+                                  className="inline-flex items-center text-[10px] bg-emerald-950/90 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.2 rounded-md font-bold"
+                                >
+                                  ✓ {item}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
 
-                      {/* Right: Score & Bomb Count */}
-                      <div className="text-right shrink-0 flex items-center gap-2">
-                        <div className="text-xs bg-slate-950 px-2 py-1 rounded-lg border border-slate-800">
-                          <span className="text-amber-400 font-black text-sm">{player.score}</span>
-                          <span className="text-[10px] text-slate-400 ml-1">pt</span>
+                      {/* Right: Score, Bomb Count & Small Bonus Badges */}
+                      <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                        <div className="flex items-center gap-1.5">
+                          <div className="text-xs bg-slate-950 px-2 py-1 rounded-lg border border-slate-800">
+                            <span className="text-amber-400 font-black text-sm">{player.score}</span>
+                            <span className="text-[10px] text-slate-400 ml-1">pt</span>
+                          </div>
+                          <div className="flex items-center text-xs font-bold text-slate-300" title="Bombe disponibili">
+                            💣 {player.bombs}
+                          </div>
                         </div>
-                        <div className="flex items-center text-xs font-bold text-slate-300" title="Bombe disponibili">
-                          💣 {player.bombs}
-                        </div>
+
+                        {/* Small Active Bonuses in LIM Scoreboard */}
+                        {((player.speedBonus ?? 0) > 0 || (player.extraBombsBonus ?? 0) > 0 || (player.rangeBonus ?? 0) > 0) && (
+                          <div className="flex items-center gap-1 text-[10px]">
+                            {(player.speedBonus ?? 0) > 0 && (
+                              <span className="bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-1 py-0.2 rounded font-black" title="Ali Velocità">
+                                🪽+{player.speedBonus}
+                              </span>
+                            )}
+                            {(player.extraBombsBonus ?? 0) > 0 && (
+                              <span className="bg-orange-950 text-orange-300 border border-orange-500/30 px-1 py-0.2 rounded font-black" title="Bombe Extra">
+                                💣+{player.extraBombsBonus}
+                              </span>
+                            )}
+                            {(player.rangeBonus ?? 0) > 0 && (
+                              <span className="bg-red-950 text-red-300 border border-red-500/30 px-1 py-0.2 rounded font-black" title="Raggio Fiamma">
+                                🔥+{player.rangeBonus}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );

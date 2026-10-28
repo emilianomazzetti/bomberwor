@@ -63,6 +63,10 @@ export interface PlayerSyncData {
   letterIndex?: number;
   options?: string[];
   correctAnswer?: string;
+  speedBonus?: number;       // count of wings collected (each increases speed)
+  rangeBonus?: number;       // count of flames collected (up to 5)
+  extraBombsBonus?: number;  // extra bomb capacity
+  completedItems?: string[]; // list of completed words/operations
   input?: PlayerInput;
   reviveTrigger?: boolean;
   joinedAt: number;

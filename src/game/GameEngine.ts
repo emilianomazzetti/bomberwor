@@ -57,6 +57,16 @@ export interface FloatingText {
   maxLife: number;
 }
 
+export type BonusType = 'points_5' | 'points_10' | 'points_15' | 'speed_wings' | 'extra_bombs_1' | 'extra_bombs_2' | 'fire_power';
+
+export interface BonusItem {
+  id: string;
+  x: number;
+  y: number;
+  type: BonusType;
+  bobOffset: number;
+}
+
 export interface EnginePlayer {
   id: string;
   name: string;
@@ -75,6 +85,12 @@ export interface EnginePlayer {
   isGhost: boolean;
   stunnedUntil: number; // timestamp
   lastBombSeq: number;
+
+  // Active bonuses
+  speedBonus: number;       // count of wings
+  rangeBonus: number;       // count of flames (up to 5)
+  extraBombsBonus: number;  // extra bomb slots
+  completedItems: string[]; // history of solved words/operations
   
   // Educational progress
   subject: SubjectType;
@@ -97,6 +113,7 @@ export interface EnginePlayer {
 export class GameEngine {
   public grid: number[][] = [];
   public eduTiles: EduTile[] = [];
+  public bonusItems: BonusItem[] = [];
   public bombs: Bomb[] = [];
   public flames: FlameTile[] = [];
   public particles: Particle[] = [];
@@ -171,6 +188,7 @@ export class GameEngine {
     this.particles = [];
     this.floatingTexts = [];
     this.eduTiles = [];
+    this.bonusItems = [];
     this.repopulateEduTiles();
   }
 
@@ -269,6 +287,10 @@ export class GameEngine {
         isGhost: false,
         stunnedUntil: 0,
         lastBombSeq: 0,
+        speedBonus: 0,
+        rangeBonus: 0,
+        extraBombsBonus: 0,
+        completedItems: [],
         subject: initialSubject,
         questionText: initialQ.questionText,
         targetSymbol: initialQ.targetSymbol,
@@ -388,9 +410,10 @@ export class GameEngine {
           this.flames.push({ x: nx, y: ny, life: 30, isCenter: false });
           this.createCrateParticles(nx, ny);
 
-          // Give mystery reward or reveal tile
-          if (Math.random() < 0.7) {
-            // Spawn an educational tile here!
+          // Give mystery reward: Educational tile OR Bonus Item!
+          const roll = Math.random();
+          if (roll < 0.40) {
+            // Drop an educational tile!
             const playerOwner = this.players.get(bomb.ownerId);
             const symbol = playerOwner ? playerOwner.targetSymbol : 'A';
             this.eduTiles.push({
@@ -400,7 +423,24 @@ export class GameEngine {
               subject: this.subject,
               bobOffset: Math.random() * Math.PI * 2
             });
-            this.addFloatingText(nx + 0.5, ny + 0.5, 'BOX! 🎁', '#f59e0b');
+            this.addFloatingText(nx + 0.5, ny + 0.5, 'LETTERA! 🔤', '#38bdf8');
+          } else if (roll < 0.85) {
+            // Drop a Bonus Item!
+            const bonusPool: BonusType[] = [
+              'points_5', 'points_10', 'points_15',
+              'speed_wings',
+              'extra_bombs_1', 'extra_bombs_2',
+              'fire_power'
+            ];
+            const chosenBonus = bonusPool[Math.floor(Math.random() * bonusPool.length)];
+            this.bonusItems.push({
+              id: `bonus_${Date.now()}_${Math.random()}`,
+              x: nx,
+              y: ny,
+              type: chosenBonus,
+              bobOffset: Math.random() * Math.PI * 2
+            });
+            this.addFloatingText(nx + 0.5, ny + 0.5, 'BONUS! 🎁', '#f59e0b');
           }
           break;
         }
@@ -505,6 +545,9 @@ export class GameEngine {
 
       // Check collision with educational tiles
       this.checkPlayerTileCollisions(player, now);
+
+      // Check collision with mystery bonus items
+      this.checkPlayerBonusCollisions(player);
     });
 
     // 2. Update bombs & clear allowedPlayers once players step away
@@ -547,8 +590,17 @@ export class GameEngine {
           if (dist < 0.65) {
             // Player hit by explosion!
             p.isGhost = true;
+            // Se fai esplodere un personaggio o lui muore si annullano tutti i bonus
+            p.speed = 0.11;
+            p.speedBonus = 0;
+            p.bombRange = 2;
+            p.rangeBonus = 0;
+            p.maxBombs = 3;
+            p.extraBombsBonus = 0;
+            p.bombs = 1;
+
             soundEngine.playWrong();
-            this.addFloatingText(p.x, p.y, 'FANTASMA! 👻', '#a855f7');
+            this.addFloatingText(p.x, p.y, 'BONUS ANNULLATI! 💥', '#ef4444');
           }
         }
       });
@@ -676,6 +728,12 @@ export class GameEngine {
 
           this.addFloatingText(tile.x + 0.5, tile.y + 0.5, '+1 BOMBA! 💣', '#22c55e');
 
+          // Capture current question info before advancing
+          const currentSpelling = player.spellingWord;
+          const currentPrompt = player.questionText;
+          const currentSymbol = player.targetSymbol;
+          const currentAnswer = player.correctAnswer;
+
           // Advance question
           const nextQ = getNextQuestion(
             player.subject,
@@ -695,7 +753,26 @@ export class GameEngine {
             player.wordsCompleted += 1;
             player.score += 25;
             soundEngine.playWordComplete();
-            this.addFloatingText(player.x, player.y - 0.4, 'PAROLA COMPLETATA! 🎉', '#fbbf24');
+
+            // Store formatted completed item for live scoreboard & tablet
+            let solvedItem = '';
+            if (player.subject === 'ortografia' || player.subject === 'inglese') {
+              solvedItem = currentSpelling || player.spellingWord || currentSymbol;
+            } else if (player.subject === 'matematica') {
+              solvedItem = currentPrompt.includes('=')
+                ? currentPrompt.replace('?', currentSymbol).trim()
+                : `${currentPrompt} = ${currentSymbol}`;
+            } else if (player.subject === 'verbi') {
+              solvedItem = currentAnswer || currentSymbol;
+            } else {
+              solvedItem = currentSymbol;
+            }
+
+            if (solvedItem && !player.completedItems.includes(solvedItem)) {
+              player.completedItems.push(solvedItem);
+            }
+
+            this.addFloatingText(player.x, player.y - 0.4, 'OBIETTIVO COMPLETATO! 🎉', '#fbbf24');
             confetti({
               particleCount: 30,
               spread: 60,
@@ -715,6 +792,51 @@ export class GameEngine {
             this.addFloatingText(player.x, player.y, 'RALLENTATO! ⚡ (-2s)', '#ef4444');
           }
         }
+      }
+    }
+  }
+
+  private checkPlayerBonusCollisions(player: EnginePlayer) {
+    if (player.isGhost) return;
+
+    for (let i = this.bonusItems.length - 1; i >= 0; i--) {
+      const item = this.bonusItems[i];
+      const dist = Math.hypot(player.x - (item.x + 0.5), player.y - (item.y + 0.5));
+
+      if (dist < 0.55) {
+        soundEngine.playCorrect();
+
+        if (item.type === 'points_5') {
+          player.score += 5;
+          this.addFloatingText(player.x, player.y - 0.3, '+5 PUNTI! ⭐', '#facc15');
+        } else if (item.type === 'points_10') {
+          player.score += 10;
+          this.addFloatingText(player.x, player.y - 0.3, '+10 PUNTI! 🌟', '#38bdf8');
+        } else if (item.type === 'points_15') {
+          player.score += 15;
+          this.addFloatingText(player.x, player.y - 0.3, '+15 PUNTI! 👑', '#a855f7');
+        } else if (item.type === 'speed_wings') {
+          player.speedBonus = Math.min(4, player.speedBonus + 1);
+          player.speed = Math.min(0.18, 0.11 + player.speedBonus * 0.018);
+          this.addFloatingText(player.x, player.y - 0.3, 'ALI VELOCITÀ! 🪽', '#67e8f9');
+        } else if (item.type === 'extra_bombs_1') {
+          player.extraBombsBonus += 1;
+          player.maxBombs = Math.min(8, player.maxBombs + 1);
+          player.bombs = Math.min(player.maxBombs, player.bombs + 1);
+          this.addFloatingText(player.x, player.y - 0.3, '+1 BOMBA! 💣', '#fb923c');
+        } else if (item.type === 'extra_bombs_2') {
+          player.extraBombsBonus += 2;
+          player.maxBombs = Math.min(8, player.maxBombs + 2);
+          player.bombs = Math.min(player.maxBombs, player.bombs + 2);
+          this.addFloatingText(player.x, player.y - 0.3, '+2 BOMBE! 💣💣', '#f97316');
+        } else if (item.type === 'fire_power') {
+          player.rangeBonus = Math.min(5, player.rangeBonus + 1);
+          player.bombRange = 2 + player.rangeBonus;
+          this.addFloatingText(player.x, player.y - 0.3, `RAGGIO FIAMMA +${player.rangeBonus}! 🔥`, '#ef4444');
+        }
+
+        this.bonusItems.splice(i, 1);
+        break;
       }
     }
   }
@@ -766,6 +888,14 @@ export class GameEngine {
       const bob = Math.sin(time + tile.bobOffset) * 4;
 
       this.drawEduTile(ctx, rx, ry + bob, tileW, tileH, tile.symbol);
+    });
+
+    // Draw Mystery Bonus Items (Wings, Flames, Bomb stock, Bonus points)
+    this.bonusItems.forEach(item => {
+      const rx = item.x * tileW;
+      const ry = item.y * tileH;
+      const bob = Math.sin(time + item.bobOffset) * 4;
+      this.drawBonusItem(ctx, rx, ry + bob, tileW, tileH, item.type);
     });
 
     // 4. Draw Bombs
@@ -928,6 +1058,91 @@ export class GameEngine {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(symbol, cardX + cardW * 0.5, cardY + cardH * 0.55);
+
+    ctx.restore();
+  }
+
+  private drawBonusItem(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    type: BonusType
+  ) {
+    ctx.save();
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(x + w * 0.5, y + h * 0.85, w * 0.35, h * 0.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const pad = 4;
+    const bw = w - pad * 2;
+    const bh = h - pad * 2;
+    const bx = x + pad;
+    const by = y + pad;
+
+    let borderCol = '#f59e0b';
+    let bgCol = '#fef3c7';
+    let icon = '⭐';
+    let label = 'BONUS';
+
+    if (type === 'points_5') {
+      borderCol = '#eab308';
+      bgCol = '#fef08a';
+      icon = '⭐';
+      label = '+5 pt';
+    } else if (type === 'points_10') {
+      borderCol = '#0284c7';
+      bgCol = '#e0f2fe';
+      icon = '🌟';
+      label = '+10 pt';
+    } else if (type === 'points_15') {
+      borderCol = '#9333ea';
+      bgCol = '#f3e8ff';
+      icon = '👑';
+      label = '+15 pt';
+    } else if (type === 'speed_wings') {
+      borderCol = '#06b6d4';
+      bgCol = '#cffafe';
+      icon = '🪽';
+      label = 'ALI';
+    } else if (type === 'extra_bombs_1') {
+      borderCol = '#ea580c';
+      bgCol = '#ffedd5';
+      icon = '💣';
+      label = '+1';
+    } else if (type === 'extra_bombs_2') {
+      borderCol = '#c2410c';
+      bgCol = '#fed7aa';
+      icon = '💣';
+      label = '+2';
+    } else if (type === 'fire_power') {
+      borderCol = '#dc2626';
+      bgCol = '#fee2e2';
+      icon = '🔥';
+      label = 'FUOCO';
+    }
+
+    ctx.fillStyle = bgCol;
+    ctx.strokeStyle = borderCol;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    // Emoji icon in center
+    ctx.font = `${Math.floor(bw * 0.42)}px "Fredoka", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(icon, bx + bw * 0.5, by + bh * 0.42);
+
+    // Label on bottom
+    ctx.font = `bold ${Math.floor(bw * 0.26)}px "Fredoka", sans-serif`;
+    ctx.fillStyle = '#0f172a';
+    ctx.fillText(label, bx + bw * 0.5, by + bh * 0.82);
 
     ctx.restore();
   }

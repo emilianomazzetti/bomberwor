@@ -38,6 +38,10 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
   const [spellingWord, setSpellingWord] = useState<string>('');
   const [letterIndex, setLetterIndex] = useState<number>(0);
   const [options, setOptions] = useState<string[]>([]);
+  const [speedBonus, setSpeedBonus] = useState<number>(0);
+  const [rangeBonus, setRangeBonus] = useState<number>(0);
+  const [extraBombsBonus, setExtraBombsBonus] = useState<number>(0);
+  const [completedItems, setCompletedItems] = useState<string[]>([]);
 
   // Mini quiz state for ghost revival
   const [ghostQuizAnswered, setGhostQuizAnswered] = useState<boolean>(false);
@@ -98,6 +102,10 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
       if (stateUpdate.spellingWord) setSpellingWord(stateUpdate.spellingWord);
       if (stateUpdate.letterIndex !== undefined) setLetterIndex(stateUpdate.letterIndex);
       if (stateUpdate.options) setOptions(stateUpdate.options);
+      if (stateUpdate.speedBonus !== undefined) setSpeedBonus(stateUpdate.speedBonus);
+      if (stateUpdate.rangeBonus !== undefined) setRangeBonus(stateUpdate.rangeBonus);
+      if (stateUpdate.extraBombsBonus !== undefined) setExtraBombsBonus(stateUpdate.extraBombsBonus);
+      if (stateUpdate.completedItems !== undefined) setCompletedItems(stateUpdate.completedItems);
     });
 
     netRef.current = net;
@@ -375,6 +383,45 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
             </div>
           )}
         </div>
+
+        {/* Active Collected Bonuses Display (Prominent on Tablet Controller) */}
+        {(speedBonus > 0 || extraBombsBonus > 0 || rangeBonus > 0) && (
+          <div className="flex flex-wrap items-center justify-center gap-2 bg-slate-800/90 border border-slate-700/80 rounded-xl px-3 py-1.5 shadow-md">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Bonus Attivi:</span>
+            {speedBonus > 0 && (
+              <span className="inline-flex items-center gap-1.5 bg-cyan-950/90 text-cyan-300 border border-cyan-400/50 px-2.5 py-1 rounded-lg text-xs font-black shadow-sm">
+                <span className="text-sm">🪽</span> Ali Velocità +{speedBonus}
+              </span>
+            )}
+            {extraBombsBonus > 0 && (
+              <span className="inline-flex items-center gap-1.5 bg-orange-950/90 text-orange-300 border border-orange-400/50 px-2.5 py-1 rounded-lg text-xs font-black shadow-sm">
+                <span className="text-sm">💣</span> Bombe Extra +{extraBombsBonus}
+              </span>
+            )}
+            {rangeBonus > 0 && (
+              <span className="inline-flex items-center gap-1.5 bg-red-950/90 text-red-300 border border-red-400/50 px-2.5 py-1 rounded-lg text-xs font-black shadow-sm">
+                <span className="text-sm">🔥</span> Raggio Fiamma +{rangeBonus}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Recent Completed Words / Operations Bar */}
+        {completedItems && completedItems.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 px-1 text-xs">
+            <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Completati:</span>
+            <div className="flex items-center gap-1 shrink-0">
+              {completedItems.slice(-4).map((item, idx) => (
+                <span
+                  key={idx}
+                  className="inline-flex items-center gap-1 text-[11px] bg-emerald-950 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-lg font-black"
+                >
+                  ✓ {item}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </header>
 
       {/* Main Touch Area: Virtual Analog Joystick on Left, Giant Bomb Button on Right */}
