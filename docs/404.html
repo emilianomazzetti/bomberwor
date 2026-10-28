@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BomberWord - Multiplayer Didattico LIM & Tablet</title>
+    <meta name="description" content="Gioco multiplayer dual-screen (LIM/Host e Tablet Controller) in stile Bomberman con sfide didattiche multimateria per la scuola primaria." />
+    <meta property="og:title" content="BomberWord - Multiplayer Didattico LIM & Tablet" />
+    <meta property="og:description" content="Gioco multiplayer dual-screen (LIM/Host e Tablet Controller) in stile Bomberman con sfide didattiche multimateria per la scuola primaria." />
+    <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700;800&family=Press+Start+2P&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+    <script type="module" crossorigin src="./assets/index.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // Single Page Apps for GitHub Pages redirect
+      // https://github.com/rafgraph/spa-github-pages
+      var pathSegmentsToKeep = 1;
+      var l = window.location;
+      if (l.search) {
+        var q = {};
+        l.search.slice(1).split('&').forEach(function(v) {
+          var k = v.split('=');
+          q[k[0]] = k[1] && decodeURIComponent(k[1].replace(/\+/g, ' '));
+        });
+        if (q.p !== undefined) {
+          window.history.replaceState(null, null,
+            l.pathname.slice(0, -1) + (q.p || '') +
+            (q.q ? ('?' + q.q) : '') +
+            l.hash
+          );
+        }
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
