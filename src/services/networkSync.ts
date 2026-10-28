@@ -330,15 +330,22 @@ export function initControllerNetwork(
     console.warn('Controller PeerJS init notice:', err);
   }
 
-  // 2. Also send Join over Firebase & BroadcastChannel
-  localSyncChannel?.postMessage({ type: 'PLAYER_JOIN', pin, player });
+  // 2. Also send Join over Firebase & BroadcastChannel without overwriting question state
+  const joinPayload = {
+    id: player.id,
+    name: player.name,
+    color: player.color,
+    colorIdx: player.colorIdx,
+    joinedAt: player.joinedAt || Date.now()
+  };
+  localSyncChannel?.postMessage({ type: 'PLAYER_JOIN', pin, player: joinPayload });
   const playerRef = ref(db, `rooms/${pin}/players/${player.id}`);
-  set(playerRef, player).catch(() => {});
+  update(playerRef, joinPayload).catch(() => {});
 
   // Listen for changes from Firebase
   const unsubFirebase = onValue(playerRef, (snap) => {
     const data = snap.val();
-    if (data) {
+    if (data && data.questionText) {
       onStateUpdate(data);
     }
   }, () => {});

@@ -27,6 +27,7 @@ export interface Bomb {
   timer: number; // in frames (starts at 180 = ~3 seconds at 60fps)
   maxTimer: number;
   range: number;
+  allowedPlayers: Set<string>; // players currently stepping off this bomb
 }
 
 export interface FlameTile {
@@ -260,7 +261,7 @@ export class GameEngine {
         vy: 0,
         direction: 'down',
         frame: 0,
-        speed: 0.08,
+        speed: 0.11, // Smooth, crisp arcade walking speed
         bombs: 1, // starts with 1 ready bomb
         maxBombs: 3,
         bombRange: 2,
@@ -324,6 +325,16 @@ export class GameEngine {
     if (alreadyExists) return;
 
     player.bombs -= 1;
+
+    // Track all players currently standing on this bomb tile so they can freely walk off!
+    const allowed = new Set<string>();
+    this.players.forEach(p => {
+      const dist = Math.hypot(p.x - (tileX + 0.5), p.y - (tileY + 0.5));
+      if (dist < 0.95) {
+        allowed.add(p.id);
+      }
+    });
+
     this.bombs.push({
       id: `bomb_${Date.now()}_${Math.random()}`,
       x: tileX,
@@ -331,7 +342,8 @@ export class GameEngine {
       ownerId: player.id,
       timer: 180, // ~3 seconds at 60 fps
       maxTimer: 180,
-      range: player.bombRange
+      range: player.bombRange,
+      allowedPlayers: allowed
     });
 
     soundEngine.playBombDrop();
@@ -495,9 +507,27 @@ export class GameEngine {
       this.checkPlayerTileCollisions(player, now);
     });
 
-    // 2. Update bombs
+    // 2. Update bombs & clear allowedPlayers once players step away
     for (let i = this.bombs.length - 1; i >= 0; i--) {
       const bomb = this.bombs[i];
+
+      // Remove players from allowed pass list once they have stepped completely outside the bomb
+      if (bomb.allowedPlayers && bomb.allowedPlayers.size > 0) {
+        const toClear: string[] = [];
+        bomb.allowedPlayers.forEach(pId => {
+          const p = this.players.get(pId);
+          if (p) {
+            const dist = Math.hypot(p.x - (bomb.x + 0.5), p.y - (bomb.y + 0.5));
+            if (dist > 0.92) {
+              toClear.push(pId);
+            }
+          } else {
+            toClear.push(pId);
+          }
+        });
+        toClear.forEach(id => bomb.allowedPlayers.delete(id));
+      }
+
       bomb.timer -= 1;
       if (bomb.timer <= 0) {
         this.explodeBomb(bomb);
@@ -555,32 +585,45 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Buttery-smooth arcade collision with corridor snapping and corner assist
+   */
   private movePlayerWithCollision(player: EnginePlayer, dx: number, dy: number) {
-    const radius = 0.32;
+    const radius = 0.28; // Comfortable corridor collision radius (corridors are 1.0 wide)
+
+    const isMovingX = Math.abs(dx) > 0.01;
+    const isMovingY = Math.abs(dy) > 0.01;
+
+    // Corner assist: smoothly align into hallway center without stopping momentum
+    if (isMovingX && Math.abs(dx) >= Math.abs(dy)) {
+      const centerY = Math.floor(player.y) + 0.5;
+      const diffY = centerY - player.y;
+      if (Math.abs(diffY) > 0.01) {
+        player.y += diffY * 0.22;
+      }
+    }
+
+    if (isMovingY && Math.abs(dy) > Math.abs(dx)) {
+      const centerX = Math.floor(player.x) + 0.5;
+      const diffX = centerX - player.x;
+      if (Math.abs(diffX) > 0.01) {
+        player.x += diffX * 0.22;
+      }
+    }
 
     // Move along X
-    let nextX = player.x + dx;
-    if (!this.checkCollides(nextX, player.y, radius, player)) {
-      player.x = nextX;
-    } else {
-      // Wall sliding corner tolerance
-      const tileCenterY = Math.floor(player.y) + 0.5;
-      const diffY = tileCenterY - player.y;
-      if (Math.abs(diffY) > 0.05 && Math.abs(diffY) < 0.45) {
-        player.y += Math.sign(diffY) * player.speed * 0.5;
+    if (dx !== 0) {
+      const nextX = player.x + dx;
+      if (!this.checkCollides(nextX, player.y, radius, player)) {
+        player.x = nextX;
       }
     }
 
     // Move along Y
-    let nextY = player.y + dy;
-    if (!this.checkCollides(player.x, nextY, radius, player)) {
-      player.y = nextY;
-    } else {
-      // Wall sliding corner tolerance
-      const tileCenterX = Math.floor(player.x) + 0.5;
-      const diffX = tileCenterX - player.x;
-      if (Math.abs(diffX) > 0.05 && Math.abs(diffX) < 0.45) {
-        player.x += Math.sign(diffX) * player.speed * 0.5;
+    if (dy !== 0) {
+      const nextY = player.y + dy;
+      if (!this.checkCollides(player.x, nextY, radius, player)) {
+        player.y = nextY;
       }
     }
   }
@@ -600,11 +643,12 @@ export class GameEngine {
           return true;
         }
 
-        // Check bomb collision (only solid if player is not currently standing on it)
+        // Check bomb collision (only solid if player is not currently allowed to step off)
         const bomb = this.bombs.find(b => b.x === x && b.y === y);
         if (bomb) {
-          const wasInsideBomb = Math.floor(player.x) === bomb.x && Math.floor(player.y) === bomb.y;
-          if (!wasInsideBomb) {
+          if (bomb.allowedPlayers && bomb.allowedPlayers.has(player.id)) {
+            // Player is allowed to freely step off the bomb!
+          } else {
             return true;
           }
         }

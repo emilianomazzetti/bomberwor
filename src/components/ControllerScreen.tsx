@@ -357,20 +357,20 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
         </div>
 
         {/* Central Educational Mission Box */}
-        <div className="bg-gradient-to-r from-blue-950/60 to-indigo-950/60 border border-blue-500/30 rounded-xl p-3 flex items-center justify-between gap-3">
+        <div className="bg-gradient-to-r from-blue-950/70 to-indigo-950/70 border border-blue-500/40 rounded-xl p-3 flex items-center justify-between gap-3 shadow-inner">
           <div className="min-w-0">
             <div className="text-[11px] font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1">
               <Sparkles className="w-3.5 h-3.5 text-blue-400" />
               Obiettivo Didattico
             </div>
             <div className="text-base sm:text-lg font-black text-white truncate">
-              {questionText}
+              {questionText || 'In attesa del quesito dalla LIM...'}
             </div>
           </div>
 
-          {/* Required Target Symbol Highlight */}
+          {/* Required Target Symbol Highlight (solid, crisp without flickering pulse) */}
           {targetSymbol && (
-            <div className="shrink-0 text-center bg-amber-400 text-slate-950 px-3.5 py-1.5 rounded-xl font-black text-xl shadow-md border-2 border-white animate-pulse">
+            <div className="shrink-0 text-center bg-amber-400 text-slate-950 px-4 py-1.5 rounded-xl font-black text-xl shadow-lg border-2 border-white tracking-wider">
               {targetSymbol}
             </div>
           )}
@@ -380,16 +380,16 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
       {/* Main Touch Area: Virtual Analog Joystick on Left, Giant Bomb Button on Right */}
       <main className="flex-1 flex items-center justify-around gap-4 sm:gap-8 px-2 py-4 relative">
         
-        {/* Ghost Revival Overlay (if player was eliminated by a bomb) */}
+        {/* Ghost Revival Overlay (solid dark overlay without blur repaints) */}
         {isGhost && (
-          <div className="absolute inset-0 z-30 bg-purple-950/90 backdrop-blur-md rounded-3xl border-2 border-purple-500 p-6 flex flex-col items-center justify-center text-center shadow-2xl">
-            <Ghost className="w-16 h-16 text-purple-300 animate-bounce mb-2" />
+          <div className="absolute inset-0 z-30 bg-slate-950/95 rounded-3xl border-2 border-purple-500 p-6 flex flex-col items-center justify-center text-center shadow-2xl">
+            <Ghost className="w-16 h-16 text-purple-300 mb-2" />
             <h2 className="text-2xl font-black text-white mb-1">SEI UN FANTASMA! 👻</h2>
             <p className="text-xs text-purple-200 max-w-xs mb-4">
               Risolvi questo quesito per tornare subito in gioco sulla LIM!
             </p>
 
-            <div className="bg-purple-900/80 p-3 rounded-2xl border border-purple-400/40 w-full max-w-sm mb-4">
+            <div className="bg-purple-900/80 p-3 rounded-2xl border border-purple-400/40 w-full max-w-sm mb-4 shadow-lg">
               <div className="text-sm font-bold text-amber-300 mb-2">{questionText}</div>
               {options && options.length > 0 ? (
                 <div className="grid grid-cols-2 gap-2">
@@ -406,7 +406,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
               ) : (
                 <button
                   onClick={() => handleGhostAnswer(targetSymbol)}
-                  className="w-full bg-amber-400 text-slate-950 font-black text-base py-3 rounded-xl shadow-lg"
+                  className="w-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-base py-3 rounded-xl shadow-lg active:scale-95 transition"
                 >
                   Tocca qui: {targetSymbol || 'RIPARTI'}
                 </button>
@@ -414,7 +414,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
             </div>
 
             {ghostFeedback && (
-              <div className="text-sm font-bold text-amber-300 animate-pulse">
+              <div className="text-sm font-bold text-amber-300">
                 {ghostFeedback}
               </div>
             )}
