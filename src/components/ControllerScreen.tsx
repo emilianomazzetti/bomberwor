@@ -41,6 +41,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
   const [speedBonus, setSpeedBonus] = useState<number>(0);
   const [rangeBonus, setRangeBonus] = useState<number>(0);
   const [extraBombsBonus, setExtraBombsBonus] = useState<number>(0);
+  const [correctAnswer, setCorrectAnswer] = useState<string>('');
   const [completedItems, setCompletedItems] = useState<string[]>([]);
   const [bombRechargeSec, setBombRechargeSec] = useState<number>(0);
 
@@ -103,6 +104,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
       if (stateUpdate.spellingWord) setSpellingWord(stateUpdate.spellingWord);
       if (stateUpdate.letterIndex !== undefined) setLetterIndex(stateUpdate.letterIndex);
       if (stateUpdate.options) setOptions(stateUpdate.options);
+      if (stateUpdate.correctAnswer) setCorrectAnswer(stateUpdate.correctAnswer);
       if (stateUpdate.speedBonus !== undefined) setSpeedBonus(stateUpdate.speedBonus);
       if (stateUpdate.rangeBonus !== undefined) setRangeBonus(stateUpdate.rangeBonus);
       if (stateUpdate.extraBombsBonus !== undefined) setExtraBombsBonus(stateUpdate.extraBombsBonus);
@@ -220,7 +222,8 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
 
   // Ghost revival mini-quiz answer
   const handleGhostAnswer = (opt: string) => {
-    if (opt.toUpperCase() === targetSymbol.toUpperCase() || opt === options[0]) {
+    const target = correctAnswer || spellingWord || targetSymbol;
+    if (opt.toUpperCase() === target.toUpperCase()) {
       // Correct!
       setGhostFeedback('Corretto! Sei tornato in vita! 🌟');
       soundEngine.playCorrect();

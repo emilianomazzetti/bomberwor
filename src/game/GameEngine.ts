@@ -724,10 +724,10 @@ export class GameEngine {
             // Player hit by explosion!
             p.isGhost = true;
             if (p.isAdversary) {
-              p.stunnedUntil = now + 3000;
+              p.stunnedUntil = now + 45000; // 45 seconds dead
               p.bombs = 1;
               soundEngine.playWrong();
-              this.addFloatingText(p.x, p.y, 'NEMICO COLPITO! 💥', '#ef4444');
+              this.addFloatingText(p.x, p.y, 'NEMICO ELIMINATO (45s)! 💀', '#ef4444');
             } else {
               // Se fai esplodere un personaggio o lui muore si annullano tutti i bonus
               p.speed = 0.11;
@@ -786,7 +786,6 @@ export class GameEngine {
     this.players.forEach(p => {
       if (!p.isAdversary) return;
 
-      // If defeated / ghost, auto repair and respawn in their corner after 3 seconds
       if (p.isGhost) {
         if (now > p.stunnedUntil) {
           p.isGhost = false;
@@ -814,7 +813,7 @@ export class GameEngine {
         p.input.dy = (dy / mag) * 0.9;
         p.botAiTimer = 15;
       } else {
-        // 2. Hunt nearest human player!
+        // 2. Hunt nearest human player with corridor line-of-sight check
         let nearestPlayer: EnginePlayer | null = null;
         let minDist = Infinity;
         this.players.forEach(other => {
@@ -829,27 +828,83 @@ export class GameEngine {
 
         if (nearestPlayer) {
           const target = nearestPlayer as EnginePlayer;
-          const dx = target.x - p.x;
-          const dy = target.y - p.y;
-          const mag = Math.hypot(dx, dy) || 1;
-          p.input.dx = (dx / mag) * 0.82;
-          p.input.dy = (dy / mag) * 0.82;
+          const targetTileX = Math.floor(target.x);
+          const targetTileY = Math.floor(target.y);
 
-          // If close to player and has bomb, drop bomb to trap/blow them up!
-          if (minDist < 2.0 && p.bombs > 0 && p.botBombTimer <= 0) {
-            this.dropBomb(p);
-            p.input.dx = -p.input.dx;
-            p.input.dy = -p.input.dy;
-            p.botBombTimer = 300 + Math.floor(Math.random() * 120);
+          // Check if corridor line of sight is clear of walls and crates
+          let hasLineOfSight = true;
+          if (tileY === targetTileY) {
+            const minX = Math.min(tileX, targetTileX);
+            const maxX = Math.max(tileX, targetTileX);
+            for (let x = minX + 1; x < maxX; x++) {
+              if (this.grid[tileY][x] === TILE_WALL || this.grid[tileY][x] === TILE_CRATE) {
+                hasLineOfSight = false;
+                break;
+              }
+            }
+          } else if (tileX === targetTileX) {
+            const minY = Math.min(tileY, targetTileY);
+            const maxY = Math.max(tileY, targetTileY);
+            for (let y = minY + 1; y < maxY; y++) {
+              if (this.grid[y][tileX] === TILE_WALL || this.grid[y][tileX] === TILE_CRATE) {
+                hasLineOfSight = false;
+                break;
+              }
+            }
+          } else {
+            hasLineOfSight = false;
+          }
+
+          if (hasLineOfSight) {
+            // Clear path to player -> hunt along corridor!
+            const dx = target.x - p.x;
+            const dy = target.y - p.y;
+            const mag = Math.hypot(dx, dy) || 1;
+            p.input.dx = (dx / mag) * 0.85;
+            p.input.dy = (dy / mag) * 0.85;
+
+            if (minDist < 2.0 && p.bombs > 0 && p.botBombTimer <= 0) {
+              this.dropBomb(p);
+              p.input.dx = -p.input.dx;
+              p.input.dy = -p.input.dy;
+              p.botBombTimer = 300;
+            }
+          } else {
+            // Blocked by crates/walls -> bot focuses on blowing up nearby crates
+            const nearCrate = [
+              { x: tileX + 1, y: tileY },
+              { x: tileX - 1, y: tileY },
+              { x: tileX, y: tileY + 1 },
+              { x: tileX, y: tileY - 1 }
+            ].some(c => {
+              if (c.x >= 0 && c.x < GRID_COLS && c.y >= 0 && c.y < GRID_ROWS) {
+                return this.grid[c.y][c.x] === TILE_CRATE;
+              }
+              return false;
+            });
+
+            if (nearCrate && p.bombs > 0 && p.botBombTimer <= 0) {
+              this.dropBomb(p);
+              p.input.dx = -p.input.dx;
+              p.input.dy = -p.input.dy;
+              p.botBombTimer = 240;
+            } else {
+              if (p.botAiTimer <= 0) {
+                p.botAiTimer = 45;
+                const angles = [0, Math.PI / 2, Math.PI, (Math.PI * 3) / 2];
+                const a = angles[Math.floor(Math.random() * angles.length)];
+                p.input.dx = Math.cos(a) * 0.75;
+                p.input.dy = Math.sin(a) * 0.75;
+              }
+            }
           }
         } else {
-          // Wandering fallback
           if (p.botAiTimer <= 0) {
             p.botAiTimer = 45;
             const angles = [0, Math.PI / 2, Math.PI, (Math.PI * 3) / 2];
             const a = angles[Math.floor(Math.random() * angles.length)];
-            p.input.dx = Math.cos(a) * 0.7;
-            p.input.dy = Math.sin(a) * 0.7;
+            p.input.dx = Math.cos(a) * 0.75;
+            p.input.dy = Math.sin(a) * 0.75;
           }
         }
       }
@@ -857,32 +912,12 @@ export class GameEngine {
   }
 
   /**
-   * Buttery-smooth arcade collision with corridor snapping and corner assist
+   * Frictionless arcade movement along corridors and walls
    */
   private movePlayerWithCollision(player: EnginePlayer, dx: number, dy: number) {
-    const radius = 0.28; // Comfortable corridor collision radius (corridors are 1.0 wide)
+    const radius = 0.28;
 
-    const isMovingX = Math.abs(dx) > 0.01;
-    const isMovingY = Math.abs(dy) > 0.01;
-
-    // Corner assist: smoothly align into hallway center without stopping momentum
-    if (isMovingX && Math.abs(dx) >= Math.abs(dy)) {
-      const centerY = Math.floor(player.y) + 0.5;
-      const diffY = centerY - player.y;
-      if (Math.abs(diffY) > 0.01) {
-        player.y += diffY * 0.22;
-      }
-    }
-
-    if (isMovingY && Math.abs(dy) > Math.abs(dx)) {
-      const centerX = Math.floor(player.x) + 0.5;
-      const diffX = centerX - player.x;
-      if (Math.abs(diffX) > 0.01) {
-        player.x += diffX * 0.22;
-      }
-    }
-
-    // Move along X
+    // Move along X with zero friction
     if (dx !== 0) {
       const nextX = player.x + dx;
       if (!this.checkCollides(nextX, player.y, radius, player)) {
@@ -890,7 +925,7 @@ export class GameEngine {
       }
     }
 
-    // Move along Y
+    // Move along Y with zero friction
     if (dy !== 0) {
       const nextY = player.y + dy;
       if (!this.checkCollides(player.x, nextY, radius, player)) {
