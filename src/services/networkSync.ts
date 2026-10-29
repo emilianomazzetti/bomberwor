@@ -137,20 +137,133 @@ try {
 } catch {}
 
 /**
- * Marks a room as actively hosted by the teacher
+ * Helper: Quickly checks if PeerJS host is online
+ */
+function checkPeerHostAvailable(pin: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let resolved = false;
+    let peer: Peer | null = null;
+    let conn: any = null;
+
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        try {
+          conn?.close();
+          peer?.destroy();
+        } catch {}
+        resolve(false);
+      }
+    }, 1800);
+
+    try {
+      peer = new Peer({
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' }
+          ]
+        }
+      });
+
+      peer.on('open', () => {
+        try {
+          conn = peer!.connect(`bomberword-host-${pin}`, { reliable: false });
+          conn.on('open', () => {
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(timeout);
+              try {
+                conn.close();
+                peer?.destroy();
+              } catch {}
+              resolve(true);
+            }
+          });
+          conn.on('error', () => {
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(timeout);
+              try { peer?.destroy(); } catch {}
+              resolve(false);
+            }
+          });
+        } catch {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            try { peer?.destroy(); } catch {}
+            resolve(false);
+          }
+        }
+      });
+
+      peer.on('error', () => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          try { peer?.destroy(); } catch {}
+          resolve(false);
+        }
+      });
+    } catch {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        resolve(false);
+      }
+    }
+  });
+}
+
+/**
+ * Marks a room as actively hosted by the teacher with multi-key heartbeat
  */
 export function markRoomActive(pin: string, subject?: string) {
+  const cleanPin = pin.trim();
+  if (!cleanPin) return;
+
   try {
-    localStorage.setItem(`bomberword_active_host_${pin}`, Date.now().toString());
+    localStorage.setItem(`bomberword_active_host_${cleanPin}`, Date.now().toString());
   } catch {}
-  localSyncChannel?.postMessage({ type: 'HOST_ACTIVE', pin });
-  update(ref(db, `rooms/${pin}/settings`), {
-    pin,
-    status: 'playing',
-    active: true,
-    subject: subject || 'ortografia',
-    startedAt: Date.now()
-  }).catch(() => {});
+  localSyncChannel?.postMessage({ type: 'HOST_ACTIVE', pin: cleanPin });
+
+  const now = Date.now();
+  const updates: Record<string, any> = {
+    [`rooms/${cleanPin}/settings/pin`]: cleanPin,
+    [`rooms/${cleanPin}/settings/status`]: 'playing',
+    [`rooms/${cleanPin}/settings/active`]: true,
+    [`rooms/${cleanPin}/settings/subject`]: subject || 'ortografia',
+    [`rooms/${cleanPin}/settings/lastHeartbeat`]: now,
+    [`rooms/${cleanPin}/status`]: 'playing',
+    [`rooms/${cleanPin}/active`]: true,
+    [`rooms/${cleanPin}/lastHeartbeat`]: now
+  };
+
+  update(ref(db), updates).catch((err) => {
+    console.warn('Firebase markRoomActive notice:', err);
+  });
+}
+
+/**
+ * Unmarks a room when the teacher exits
+ */
+export function unmarkRoomActive(pin: string) {
+  const cleanPin = pin.trim();
+  if (!cleanPin) return;
+
+  try {
+    localStorage.removeItem(`bomberword_active_host_${cleanPin}`);
+  } catch {}
+  localSyncChannel?.postMessage({ type: 'HOST_INACTIVE', pin: cleanPin });
+
+  const updates: Record<string, any> = {
+    [`rooms/${cleanPin}/settings/active`]: false,
+    [`rooms/${cleanPin}/settings/status`]: 'ended',
+    [`rooms/${cleanPin}/active`]: false,
+    [`rooms/${cleanPin}/status`]: 'ended'
+  };
+  update(ref(db), updates).catch(() => {});
 }
 
 /**
@@ -160,7 +273,7 @@ export async function checkRoomIsActive(pin: string): Promise<boolean> {
   const cleanPin = pin.trim();
   if (!cleanPin) return false;
 
-  // 1. Check local storage if host is in this browser
+  // 1. Check local storage if host is in this browser/device
   try {
     const localActive = localStorage.getItem(`bomberword_active_host_${cleanPin}`);
     if (localActive) {
@@ -171,22 +284,48 @@ export async function checkRoomIsActive(pin: string): Promise<boolean> {
     }
   } catch {}
 
-  // 2. Check Firebase Realtime Database
+  // 2. Check Firebase Realtime Database with robust 3.5s timeout & multi-key verification
   try {
-    const roomRef = ref(db, `rooms/${cleanPin}/settings`);
+    const roomRef = ref(db, `rooms/${cleanPin}`);
     const snap = await Promise.race([
       get(roomRef),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200))
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500))
     ]);
 
     if (snap && snap.exists()) {
       const data = snap.val();
-      if (data && (data.status === 'playing' || data.active === true)) {
-        return true;
+      if (data) {
+        // A) Settings active or playing
+        if (data.settings && (data.settings.active === true || data.settings.status === 'playing')) {
+          return true;
+        }
+        // B) Room root active or playing
+        if (data.active === true || data.status === 'playing') {
+          return true;
+        }
+        // C) Heartbeat within the last 2 minutes
+        const hb = data.settings?.lastHeartbeat || data.lastHeartbeat;
+        if (hb && (Date.now() - Number(hb) < 120000)) {
+          return true;
+        }
+        // D) Room already has players inside (e.g. PC player actively playing!)
+        if (data.players && typeof data.players === 'object' && Object.keys(data.players).length > 0) {
+          return true;
+        }
       }
     }
   } catch (err) {
-    console.warn('Room active check notice:', err);
+    console.warn('Firebase room active check notice:', err);
+  }
+
+  // 3. Fallback: Check PeerJS Host ID availability directly via WebRTC broker
+  try {
+    const peerAlive = await checkPeerHostAvailable(cleanPin);
+    if (peerAlive) {
+      return true;
+    }
+  } catch (err) {
+    console.warn('PeerJS fallback notice:', err);
   }
 
   return false;

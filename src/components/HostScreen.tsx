@@ -3,7 +3,7 @@ import { GameEngine } from '../game/GameEngine';
 import { SubjectType, SUBJECTS } from '../data/educationalData';
 import { CHARACTER_OPTIONS } from '../data/characters';
 import { soundEngine } from '../utils/audio';
-import { initHostNetwork, broadcastHostState, markRoomActive, PlayerSyncData, PlayerInput } from '../services/networkSync';
+import { initHostNetwork, broadcastHostState, markRoomActive, unmarkRoomActive, PlayerSyncData, PlayerInput } from '../services/networkSync';
 import { DbStatusBadge } from './DbStatusBadge';
 import QRCode from 'qrcode';
 import confetti from 'canvas-confetti';
@@ -81,7 +81,7 @@ export const HostScreen: React.FC<HostScreenProps> = ({
     const updates: Record<string, Partial<PlayerSyncData>> = {};
 
     engine.players.forEach(p => {
-      if (!p.isAdversary) {
+      if (!p.isAdversary && !p.isBot) {
         list.push({
           id: p.id,
           name: p.name,
@@ -96,24 +96,24 @@ export const HostScreen: React.FC<HostScreenProps> = ({
           extraBombsBonus: p.extraBombsBonus,
           completedItems: [...p.completedItems]
         });
-      }
 
-      updates[p.id] = {
-        score: p.score,
-        bombs: p.bombs,
-        isGhost: p.isGhost,
-        questionText: p.questionText,
-        targetSymbol: p.targetSymbol,
-        spellingWord: p.spellingWord,
-        letterIndex: p.letterIndex,
-        options: p.options,
-        correctAnswer: p.correctAnswer,
-        speedBonus: p.speedBonus,
-        rangeBonus: p.rangeBonus,
-        extraBombsBonus: p.extraBombsBonus,
-        completedItems: [...p.completedItems],
-        bombRechargeSeconds: p.bombRechargeTimer > 0 ? Math.ceil(p.bombRechargeTimer / 60) : 0
-      };
+        updates[p.id] = {
+          score: p.score,
+          bombs: p.bombs,
+          isGhost: p.isGhost,
+          questionText: p.questionText,
+          targetSymbol: p.targetSymbol,
+          spellingWord: p.spellingWord,
+          letterIndex: p.letterIndex,
+          options: p.options || [],
+          correctAnswer: p.correctAnswer || '',
+          speedBonus: p.speedBonus,
+          rangeBonus: p.rangeBonus,
+          extraBombsBonus: p.extraBombsBonus,
+          completedItems: [...p.completedItems],
+          bombRechargeSeconds: p.bombRechargeTimer > 0 ? Math.ceil(p.bombRechargeTimer / 60) : 0
+        };
+      }
     });
 
     setPlayersList(list);
@@ -123,6 +123,11 @@ export const HostScreen: React.FC<HostScreenProps> = ({
   // Initialize Game Engine & Network Listeners (WebRTC P2P + Firebase + BroadcastChannel)
   useEffect(() => {
     markRoomActive(pin, subject);
+    // Maintain active heartbeat every 2.5s so remote tablets always detect active room
+    const heartbeatTimer = window.setInterval(() => {
+      markRoomActive(pin, subject);
+    }, 2500);
+
     const engine = new GameEngine(subject);
     engine.subject = subject;
     engine.mysteryBoxes = mysteryBoxes;
@@ -158,6 +163,8 @@ export const HostScreen: React.FC<HostScreenProps> = ({
     );
 
     return () => {
+      clearInterval(heartbeatTimer);
+      unmarkRoomActive(pin);
       cleanupNetwork();
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);

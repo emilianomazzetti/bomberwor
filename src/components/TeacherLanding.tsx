@@ -37,7 +37,7 @@ export const TeacherLanding: React.FC<TeacherLandingProps> = ({ onStartHost, onO
   const [useGithubUrl, setUseGithubUrl] = useState<boolean>(false);
 
   // Controller URLs
-  const githubBaseUrl = `https://emilianomazzetti.github.io/bomberwor/?mode=controller&room=${pin}`;
+  const githubBaseUrl = `https://emilianomazzetti.github.io/bomberword/?mode=controller&room=${pin}`;
   const localBaseUrl = `${window.location.origin}${window.location.pathname}?mode=controller&room=${pin}`;
   const activeControllerUrl = useGithubUrl ? githubBaseUrl : localBaseUrl;
 

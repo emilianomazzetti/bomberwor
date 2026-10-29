@@ -25,7 +25,7 @@ export default function App() {
     const modeParam = params.get('mode');
     const roomParam = params.get('room');
 
-    if (modeParam === 'controller') {
+    if (modeParam === 'controller' || (roomParam && modeParam !== 'host')) {
       setMode('controller');
       if (roomParam) setRoomPin(roomParam);
     } else if (modeParam === 'host') {

@@ -143,9 +143,16 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
     if (savedName) setPlayerName(savedName);
   }, []);
 
+  // Keep PIN in sync if loaded with initialRoomPin
+  useEffect(() => {
+    if (initialRoomPin) {
+      setPin(initialRoomPin.trim());
+    }
+  }, [initialRoomPin]);
+
   // Handle Join Game
-  const handleJoinGame = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleJoinGame = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     const cleanPin = pin.trim();
     const cleanName = playerName.trim() || `Giocatore ${selectedColorIdx + 1}`;
 
@@ -155,6 +162,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
     }
 
     setCheckingRoom(true);
+    setRoomNotStartedError(false);
     const isStarted = await checkRoomIsActive(cleanPin);
     setCheckingRoom(false);
 
@@ -483,18 +491,28 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
               <h2 className="text-base sm:text-lg font-black text-white mb-6 leading-relaxed uppercase tracking-wide">
                 STANZA NON ANCORA AVVIATA PER ENTRARE ASPETTA CHE IL DOCENTE ABBIA PREMUTO SUL PULSANTE AVVIA SCHERMO DOCENTE
               </h2>
-              <button
-                type="button"
-                onClick={() => {
-                  setRoomNotStartedError(false);
-                  if (onExit) {
-                    onExit();
-                  }
-                }}
-                className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-base py-3.5 px-6 rounded-2xl shadow-xl transition transform active:scale-95"
-              >
-                TORNA ALLA PAGINA PRECEDENTE
-              </button>
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleJoinGame()}
+                  className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-base py-3.5 px-6 rounded-2xl shadow-xl transition transform active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <RotateCcw className="w-5 h-5" />
+                  RIPROVA AD ENTRARE
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRoomNotStartedError(false);
+                    if (onExit) {
+                      onExit();
+                    }
+                  }}
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-sm py-3 px-6 rounded-2xl border border-slate-700 shadow-lg transition transform active:scale-95"
+                >
+                  TORNA ALLA PAGINA PRECEDENTE
+                </button>
+              </div>
             </div>
           </div>
         )}
