@@ -263,7 +263,9 @@ export function broadcastHostState(pin: string, playersData: Record<string, Part
   const updates: Record<string, any> = {};
   Object.entries(playersData).forEach(([pId, pData]) => {
     Object.entries(pData).forEach(([key, val]) => {
-      updates[`rooms/${pin}/players/${pId}/${key}`] = val;
+      if (val !== undefined) {
+        updates[`rooms/${pin}/players/${pId}/${key}`] = val;
+      }
     });
   });
   if (Object.keys(updates).length > 0) {
