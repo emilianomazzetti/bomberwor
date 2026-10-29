@@ -3,6 +3,7 @@ import {
   getDatabase,
   ref,
   set,
+  get,
   onValue,
   update,
   remove,
@@ -134,6 +135,62 @@ try {
     // If permission or network issue, fallback status
   });
 } catch {}
+
+/**
+ * Marks a room as actively hosted by the teacher
+ */
+export function markRoomActive(pin: string, subject?: string) {
+  try {
+    localStorage.setItem(`bomberword_active_host_${pin}`, Date.now().toString());
+  } catch {}
+  localSyncChannel?.postMessage({ type: 'HOST_ACTIVE', pin });
+  update(ref(db, `rooms/${pin}/settings`), {
+    pin,
+    status: 'playing',
+    active: true,
+    subject: subject || 'ortografia',
+    startedAt: Date.now()
+  }).catch(() => {});
+}
+
+/**
+ * Checks whether the teacher has launched the host room
+ */
+export async function checkRoomIsActive(pin: string): Promise<boolean> {
+  const cleanPin = pin.trim();
+  if (!cleanPin) return false;
+
+  // 1. Check local storage if host is in this browser
+  try {
+    const localActive = localStorage.getItem(`bomberword_active_host_${cleanPin}`);
+    if (localActive) {
+      const diff = Date.now() - Number(localActive);
+      if (diff < 4 * 3600 * 1000) {
+        return true;
+      }
+    }
+  } catch {}
+
+  // 2. Check Firebase Realtime Database
+  try {
+    const roomRef = ref(db, `rooms/${cleanPin}/settings`);
+    const snap = await Promise.race([
+      get(roomRef),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200))
+    ]);
+
+    if (snap && snap.exists()) {
+      const data = snap.val();
+      if (data && (data.status === 'playing' || data.active === true)) {
+        return true;
+      }
+    }
+  } catch (err) {
+    console.warn('Room active check notice:', err);
+  }
+
+  return false;
+}
 
 /**
  * HOST: Starts WebRTC Peer listener for the given Room PIN

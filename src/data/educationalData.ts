@@ -146,6 +146,8 @@ export const GRAMMAR_QUESTIONS = [
 ];
 
 export const MATH_QUESTIONS = [
+  { prompt: '3 × 4 = ?', correct: '12', distractors: ['14', '16', '10'] },
+  { prompt: '6 × 6 = ?', correct: '36', distractors: ['30', '32', '42'] },
   { prompt: '7 × 8 = ?', correct: '56', distractors: ['54', '48', '64'] },
   { prompt: '6 × 7 = ?', correct: '42', distractors: ['48', '36', '49'] },
   { prompt: '9 × 6 = ?', correct: '54', distractors: ['63', '45', '56'] },
@@ -185,7 +187,7 @@ export function getInitialQuestion(subject: SubjectType, playerIndex: number = 0
   if (subject === 'inglese') {
     const item = ENGLISH_VOCABULARY[playerIndex % ENGLISH_VOCABULARY.length];
     return {
-      questionText: `Traduci: ${item.it} → [${item.en}]`,
+      questionText: `Traduci: ${item.it}`,
       targetSymbol: item.en[0],
       spellingWord: item.en,
       letterIndex: 0
@@ -216,9 +218,8 @@ export function getInitialQuestion(subject: SubjectType, playerIndex: number = 0
   }
   initialPartial = initialPartial.trim();
 
-  // Ghost quiz options: only single digits 0-9
-  const digitDistractors = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].filter(d => d !== firstDigit);
-  const mathOpts = shuffleArray([firstDigit, ...shuffleArray(digitDistractors).slice(0, 3)]);
+  // Full answer options for ghost revival
+  const mathOpts = shuffleArray([targetNumber, ...q.distractors]);
 
   return {
     questionText: `${operation} = ${initialPartial}`,
@@ -249,9 +250,9 @@ export function getNextQuestion(
     const nextIdx = currentLetterIndex + 1;
     if (nextIdx < word.length) {
       // Still completing current word
-      const prefix = subject === 'inglese' ? 'Traduci & Componi' : 'Componi';
+      const prefix = subject === 'inglese' ? 'Traduci' : 'Componi';
       return {
-        questionText: `${prefix}: ${word} (Cerca: ${word[nextIdx]})`,
+        questionText: `${prefix}: ${word}`,
         targetSymbol: word[nextIdx],
         spellingWord: word,
         letterIndex: nextIdx,
@@ -302,8 +303,7 @@ export function getNextQuestion(
     }
     partialDisplay = partialDisplay.trim();
 
-    const digitDistractors = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].filter(d => d !== nextDigit);
-    const mathOpts = shuffleArray([nextDigit, ...shuffleArray(digitDistractors).slice(0, 3)]);
+    const mathOpts = shuffleArray([currentAnswer, ...mathItem.distractors]);
 
     return {
       questionText: `${operation} = ${partialDisplay}`,
@@ -327,8 +327,7 @@ export function getNextQuestion(
     }
     initialPartial = initialPartial.trim();
 
-    const digitDistractors = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].filter(d => d !== firstDigit);
-    const mathOpts = shuffleArray([firstDigit, ...shuffleArray(digitDistractors).slice(0, 3)]);
+    const mathOpts = shuffleArray([newAnswer, ...nextQ.distractors]);
 
     return {
       questionText: `${newOp} = ${initialPartial}`,

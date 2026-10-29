@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CHARACTER_OPTIONS } from '../data/characters';
-import { initControllerNetwork } from '../services/networkSync';
+import { initControllerNetwork, checkRoomIsActive } from '../services/networkSync';
 import { soundEngine } from '../utils/audio';
 import { DbStatusBadge } from './DbStatusBadge';
 import {
@@ -10,7 +10,8 @@ import {
   Zap,
   ArrowRight,
   RotateCcw,
-  Ghost
+  Ghost,
+  Delete
 } from 'lucide-react';
 
 interface ControllerScreenProps {
@@ -28,6 +29,8 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
   const [selectedColorIdx, setSelectedColorIdx] = useState<number>(0);
   const [joined, setJoined] = useState<boolean>(false);
   const [playerId] = useState<string>(() => `p_${Date.now()}_${Math.floor(Math.random() * 1000)}`);
+  const [checkingRoom, setCheckingRoom] = useState<boolean>(false);
+  const [roomNotStartedError, setRoomNotStartedError] = useState<boolean>(false);
 
   // In-Game state received from Host via WebRTC/Firebase/BroadcastChannel
   const [score, setScore] = useState<number>(0);
@@ -45,7 +48,8 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
   const [completedItems, setCompletedItems] = useState<string[]>([]);
   const [bombRechargeSec, setBombRechargeSec] = useState<number>(0);
 
-  // Mini quiz state for ghost revival
+  // Mini quiz & Digipad state for ghost revival
+  const [digipadInput, setDigipadInput] = useState<string>('');
   const [ghostQuizAnswered, setGhostQuizAnswered] = useState<boolean>(false);
   const [ghostFeedback, setGhostFeedback] = useState<string | null>(null);
 
@@ -67,13 +71,22 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
   }, []);
 
   // Handle Join Game
-  const handleJoinGame = (e: React.FormEvent) => {
+  const handleJoinGame = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPin = pin.trim();
     const cleanName = playerName.trim() || `Giocatore ${selectedColorIdx + 1}`;
 
     if (!cleanPin) {
       alert('Inserisci il PIN della stanza!');
+      return;
+    }
+
+    setCheckingRoom(true);
+    const isStarted = await checkRoomIsActive(cleanPin);
+    setCheckingRoom(false);
+
+    if (!isStarted) {
+      setRoomNotStartedError(true);
       return;
     }
 
@@ -240,6 +253,43 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
     }
   };
 
+  // Ghost revival Digipad logic for math
+  const targetAnswer = (correctAnswer || spellingWord || '').trim();
+  const targetLen = targetAnswer.length > 0 ? targetAnswer.length : 2;
+
+  const handleDigipadInput = (digit: string) => {
+    if (digipadInput.length >= targetLen) return;
+    const nextVal = digipadInput + digit;
+    setDigipadInput(nextVal);
+
+    if (nextVal.length === targetLen) {
+      if (nextVal === targetAnswer) {
+        setGhostFeedback('Corretto! Sei tornato in vita! 🌟');
+        soundEngine.playCorrect();
+        netRef.current?.sendRevive();
+        setTimeout(() => {
+          setGhostFeedback(null);
+          setDigipadInput('');
+        }, 1200);
+      } else {
+        setGhostFeedback('Sbagliato! Riprova... ❌');
+        soundEngine.playWrong();
+        setTimeout(() => {
+          setGhostFeedback(null);
+          setDigipadInput('');
+        }, 1200);
+      }
+    }
+  };
+
+  const handleDigipadBackspace = () => {
+    setDigipadInput(prev => prev.slice(0, -1));
+  };
+
+  const handleDigipadClear = () => {
+    setDigipadInput('');
+  };
+
   const selectedChar = CHARACTER_OPTIONS[selectedColorIdx] || CHARACTER_OPTIONS[0];
 
   // 1. Setup / Join Screen
@@ -330,14 +380,50 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
             {/* Join Submit Button */}
             <button
               type="submit"
-              className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-lg py-3.5 rounded-2xl shadow-xl transition-all transform active:scale-95 flex items-center justify-center gap-2 mt-4"
+              disabled={checkingRoom}
+              className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-lg py-3.5 rounded-2xl shadow-xl transition-all transform active:scale-95 flex items-center justify-center gap-2 mt-4 disabled:opacity-75 disabled:cursor-wait"
             >
-              ENTRA IN GIOCO
-              <ArrowRight className="w-5 h-5" />
+              {checkingRoom ? (
+                <>
+                  <RotateCcw className="w-5 h-5 animate-spin" />
+                  VERIFICA STANZA...
+                </>
+              ) : (
+                <>
+                  ENTRA IN GIOCO
+                  <ArrowRight className="w-5 h-5" />
+                </>
+              )}
             </button>
           </form>
 
         </div>
+
+        {/* Room Not Started Error Modal */}
+        {roomNotStartedError && (
+          <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-slate-900 border-2 border-red-500 rounded-3xl p-6 sm:p-8 max-w-md w-full text-center shadow-2xl">
+              <div className="w-16 h-16 rounded-full bg-red-500/20 border-2 border-red-500/40 flex items-center justify-center mx-auto mb-4 text-red-400">
+                <RotateCcw className="w-8 h-8" />
+              </div>
+              <h2 className="text-base sm:text-lg font-black text-white mb-6 leading-relaxed uppercase tracking-wide">
+                STANZA NON ANCORA AVVIATA PER ENTRARE ASPETTA CHE IL DOCENTE ABBIA PREMUTO SUL PULSANTE AVVIA SCHERMO DOCENTE
+              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setRoomNotStartedError(false);
+                  if (onExit) {
+                    onExit();
+                  }
+                }}
+                className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-base py-3.5 px-6 rounded-2xl shadow-xl transition transform active:scale-95"
+              >
+                TORNA ALLA PAGINA PRECEDENTE
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -377,24 +463,59 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
         </div>
 
         {/* Central Educational Mission Box */}
-        <div className="bg-gradient-to-r from-blue-950/70 to-indigo-950/70 border border-blue-500/40 rounded-xl p-3 flex items-center justify-between gap-3 shadow-inner">
-          <div className="min-w-0">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1">
-              <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-              Obiettivo Didattico
+        {questionText.includes('=') ? (
+          (() => {
+            const [mathOp, mathSlots] = questionText.split('=');
+            const slotParts = (mathSlots || '').trim().split(/\s+/).filter(Boolean);
+            return (
+              <div className="bg-gradient-to-r from-blue-950/80 via-slate-900/90 to-indigo-950/80 border-2 border-amber-400/60 rounded-2xl p-3 sm:p-4 shadow-xl flex items-center justify-center gap-3 text-center">
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  <span className="text-2xl sm:text-4xl font-black text-white tracking-wider drop-shadow">
+                    {(mathOp || '').trim()}
+                  </span>
+                  <span className="text-2xl sm:text-4xl font-black text-amber-400 mx-1 drop-shadow">
+                    =
+                  </span>
+                  <div className="inline-flex items-center gap-2">
+                    {slotParts.map((part, idx) => {
+                      const isFound = /^[0-9]$/.test(part);
+                      return (
+                        <span
+                          key={idx}
+                          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl font-black text-2xl sm:text-3xl flex items-center justify-center shadow-lg transition-all ${
+                            isFound
+                              ? 'bg-amber-400 text-slate-950 border-2 border-white scale-105 shadow-amber-500/40'
+                              : 'bg-slate-900/90 text-amber-300 border-2 border-dashed border-slate-600'
+                          }`}
+                        >
+                          {part}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })()
+        ) : (
+          <div className="bg-gradient-to-r from-blue-950/70 to-indigo-950/70 border border-blue-500/40 rounded-xl p-3 flex items-center justify-between gap-3 shadow-inner">
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                Obiettivo Didattico
+              </div>
+              <div className="text-base sm:text-lg font-black text-white truncate">
+                {questionText || 'In attesa del quesito dalla LIM...'}
+              </div>
             </div>
-            <div className="text-base sm:text-lg font-black text-white truncate">
-              {questionText || 'In attesa del quesito dalla LIM...'}
-            </div>
-          </div>
 
-          {/* Required Target Symbol Highlight (solid, crisp without flickering pulse) */}
-          {targetSymbol && (
-            <div className="shrink-0 text-center bg-amber-400 text-slate-950 px-4 py-1.5 rounded-xl font-black text-xl shadow-lg border-2 border-white tracking-wider">
-              {targetSymbol}
-            </div>
-          )}
-        </div>
+            {targetSymbol && (
+              <div className="shrink-0 text-center bg-amber-400 text-slate-950 px-4 py-1.5 rounded-xl font-black text-xl shadow-lg border-2 border-white tracking-wider">
+                {targetSymbol}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Active Collected Bonuses Display (Prominent on Tablet Controller) */}
         {(speedBonus > 0 || extraBombsBonus > 0 || rangeBonus > 0) && (
@@ -441,39 +562,107 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
         
         {/* Ghost Revival Overlay (solid dark overlay without blur repaints) */}
         {isGhost && (
-          <div className="absolute inset-0 z-30 bg-slate-950/95 rounded-3xl border-2 border-purple-500 p-6 flex flex-col items-center justify-center text-center shadow-2xl">
-            <Ghost className="w-16 h-16 text-purple-300 mb-2" />
-            <h2 className="text-2xl font-black text-white mb-1">SEI UN FANTASMA! 👻</h2>
-            <p className="text-xs text-purple-200 max-w-xs mb-4">
-              Risolvi questo quesito per tornare subito in gioco sulla LIM!
+          <div className="absolute inset-0 z-30 bg-slate-950/95 rounded-3xl border-2 border-purple-500 p-4 sm:p-6 flex flex-col items-center justify-center text-center shadow-2xl overflow-y-auto">
+            <Ghost className="w-12 h-12 text-purple-300 mb-1 shrink-0" />
+            <h2 className="text-xl sm:text-2xl font-black text-white mb-0.5">SEI UN FANTASMA! 👻</h2>
+            <p className="text-xs text-purple-200 max-w-xs mb-3">
+              Risolvi l'operazione per tornare subito in gioco sulla LIM!
             </p>
 
-            <div className="bg-purple-900/80 p-3 rounded-2xl border border-purple-400/40 w-full max-w-sm mb-4 shadow-lg">
-              <div className="text-sm font-bold text-amber-300 mb-2">{questionText}</div>
-              {options && options.length > 0 ? (
-                <div className="grid grid-cols-2 gap-2">
-                  {options.map((opt, i) => (
+            {questionText.includes('=') || (correctAnswer && /^[0-9]+$/.test(correctAnswer)) ? (
+              <div className="bg-slate-900 border-2 border-purple-400/50 p-3 sm:p-4 rounded-2xl w-full max-w-xs mb-3 shadow-2xl text-center">
+                <div className="text-[11px] uppercase tracking-wider font-bold text-purple-300 mb-2">
+                  Inserisci le 2 cifre del risultato:
+                </div>
+                <div className="flex items-center justify-center gap-2 mb-3">
+                  <span className="text-2xl sm:text-3xl font-black text-white">
+                    {questionText.includes('=') ? questionText.split('=')[0].trim() : questionText}
+                  </span>
+                  <span className="text-2xl sm:text-3xl font-black text-amber-400">=</span>
+                  <div className="inline-flex items-center gap-1.5">
+                    {Array.from({ length: targetLen }).map((_, idx) => {
+                      const digitChar = digipadInput[idx];
+                      return (
+                        <span
+                          key={idx}
+                          className={`w-10 h-10 rounded-xl font-black text-2xl flex items-center justify-center border-2 transition-all ${
+                            digitChar
+                              ? 'bg-amber-400 text-slate-950 border-white shadow-md'
+                              : 'bg-slate-950 text-amber-300/80 border-dashed border-slate-600'
+                          }`}
+                        >
+                          {digitChar || '?'}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 3x4 Digipad Keypad matching user sketch */}
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-2 w-full max-w-[220px] mx-auto select-none">
+                  {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
                     <button
-                      key={i}
-                      onClick={() => handleGhostAnswer(opt)}
-                      className="bg-purple-800 hover:bg-purple-700 active:scale-95 text-white font-black text-sm py-2.5 px-3 rounded-xl border border-purple-400 transition"
+                      key={d}
+                      type="button"
+                      onClick={() => handleDigipadInput(d)}
+                      className="aspect-square bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 text-white font-black text-xl sm:text-2xl rounded-xl border border-slate-600 shadow active:scale-95 transition flex items-center justify-center select-none"
                     >
-                      {opt}
+                      {d}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    onClick={handleDigipadClear}
+                    className="aspect-square bg-red-950/80 hover:bg-red-900 active:scale-95 text-red-300 font-black text-base rounded-xl border border-red-700/60 shadow transition flex items-center justify-center select-none"
+                    title="Cancella tutto"
+                  >
+                    C
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDigipadInput('0')}
+                    className="aspect-square bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 text-white font-black text-xl sm:text-2xl rounded-xl border border-slate-600 shadow active:scale-95 transition flex items-center justify-center select-none"
+                  >
+                    0
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDigipadBackspace}
+                    className="aspect-square bg-amber-950/80 hover:bg-amber-900 active:scale-95 text-amber-300 font-black text-base rounded-xl border border-amber-700/60 shadow transition flex items-center justify-center select-none"
+                    title="Cancella ultima cifra"
+                  >
+                    ⌫
+                  </button>
                 </div>
-              ) : (
-                <button
-                  onClick={() => handleGhostAnswer(targetSymbol)}
-                  className="w-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-base py-3 rounded-xl shadow-lg active:scale-95 transition"
-                >
-                  Tocca qui: {targetSymbol || 'RIPARTI'}
-                </button>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="bg-purple-900/80 p-3 rounded-2xl border border-purple-400/40 w-full max-w-sm mb-4 shadow-lg">
+                <div className="text-sm font-bold text-amber-300 mb-2">{questionText}</div>
+                {options && options.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {options.map((opt, i) => (
+                      <button
+                        key={i}
+                        onClick={() => handleGhostAnswer(opt)}
+                        className="bg-purple-800 hover:bg-purple-700 active:scale-95 text-white font-black text-sm py-2.5 px-3 rounded-xl border border-purple-400 transition"
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => handleGhostAnswer(targetSymbol)}
+                    className="w-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-base py-3 rounded-xl shadow-lg active:scale-95 transition"
+                  >
+                    Tocca qui: {targetSymbol || 'RIPARTI'}
+                  </button>
+                )}
+              </div>
+            )}
 
             {ghostFeedback && (
-              <div className="text-sm font-bold text-amber-300">
+              <div className="text-sm font-bold text-amber-300 px-3 py-1.5 bg-slate-900/90 rounded-xl border border-purple-500/40">
                 {ghostFeedback}
               </div>
             )}

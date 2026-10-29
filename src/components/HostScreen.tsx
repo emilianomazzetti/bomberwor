@@ -3,7 +3,7 @@ import { GameEngine } from '../game/GameEngine';
 import { SubjectType, SUBJECTS } from '../data/educationalData';
 import { CHARACTER_OPTIONS } from '../data/characters';
 import { soundEngine } from '../utils/audio';
-import { initHostNetwork, broadcastHostState, PlayerSyncData, PlayerInput } from '../services/networkSync';
+import { initHostNetwork, broadcastHostState, markRoomActive, PlayerSyncData, PlayerInput } from '../services/networkSync';
 import { DbStatusBadge } from './DbStatusBadge';
 import QRCode from 'qrcode';
 import confetti from 'canvas-confetti';
@@ -122,7 +122,8 @@ export const HostScreen: React.FC<HostScreenProps> = ({
 
   // Initialize Game Engine & Network Listeners (WebRTC P2P + Firebase + BroadcastChannel)
   useEffect(() => {
-    const engine = new GameEngine();
+    markRoomActive(pin, subject);
+    const engine = new GameEngine(subject);
     engine.subject = subject;
     engine.mysteryBoxes = mysteryBoxes;
     engine.gameTimerSeconds = durationMinutes * 60;
@@ -481,10 +482,18 @@ export const HostScreen: React.FC<HostScreenProps> = ({
                             )}
                           </div>
                           <div className="text-[11px] text-slate-400 truncate flex items-center gap-1">
-                            <span>Cerca:</span>
-                            <span className="font-bold text-amber-300 bg-slate-900 px-1.5 py-0.2 rounded border border-slate-700">
-                              {player.targetSymbol || '...'}
-                            </span>
+                            {subject === 'matematica' ? (
+                              <span className="font-bold text-amber-300 bg-slate-900 px-1.5 py-0.2 rounded border border-slate-700">
+                                {player.questionText || '...'}
+                              </span>
+                            ) : (
+                              <>
+                                <span>Cerca:</span>
+                                <span className="font-bold text-amber-300 bg-slate-900 px-1.5 py-0.2 rounded border border-slate-700">
+                                  {player.targetSymbol || '...'}
+                                </span>
+                              </>
+                            )}
                           </div>
 
                           {/* Completed Words / Operations Badges in Live Scoreboard */}

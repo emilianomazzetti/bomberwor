@@ -137,9 +137,16 @@ export class GameEngine {
   public isGameOver: boolean = false;
   public winnerName: string | null = null;
 
-  constructor() {
+  constructor(initialSubject: SubjectType = 'ortografia') {
+    this.subject = initialSubject;
     this.initImages();
     this.initGrid();
+  }
+
+  public setSubject(newSubject: SubjectType) {
+    this.subject = newSubject;
+    this.eduTiles = [];
+    this.repopulateEduTiles();
   }
 
   private initImages() {
@@ -1137,6 +1144,10 @@ export class GameEngine {
     // 3. Draw Educational Tiles (Floating Bobbing Elements)
     const time = Date.now() * 0.005;
     this.eduTiles.forEach(tile => {
+      // In math mode, strictly never draw letter tiles
+      if (this.subject === 'matematica' && !/^[0-9]$/.test(tile.symbol)) {
+        return;
+      }
       const rx = tile.x * tileW;
       const ry = tile.y * tileH;
       const bob = Math.sin(time + tile.bobOffset) * 4;
@@ -1326,16 +1337,17 @@ export class GameEngine {
   ) {
     ctx.save();
     // Drop shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fillStyle = 'rgba(0,0,0,0.32)';
     ctx.beginPath();
-    ctx.ellipse(x + w * 0.5, y + h * 0.85, w * 0.35, h * 0.15, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + w * 0.5, y + h * 0.88, w * 0.44, h * 0.18, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    const pad = 2;
-    const bw = w - pad * 2;
-    const bh = h - pad * 2;
-    const bx = x + pad;
-    const by = y + pad;
+    // Enlarge bonus items by ~25% for high visibility across the room
+    const scale = 1.25;
+    const bw = (w - 2) * scale;
+    const bh = (h - 2) * scale;
+    const bx = x + (w - bw) / 2;
+    const by = y + (h - bh) / 2 - 2;
 
     let borderCol = '#f59e0b';
     let bgCol = '#fef3c7';
@@ -1381,20 +1393,20 @@ export class GameEngine {
 
     ctx.fillStyle = bgCol;
     ctx.strokeStyle = borderCol;
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.roundRect(bx, by, bw, bh, 8);
+    ctx.roundRect(bx, by, bw, bh, 10);
     ctx.fill();
     ctx.stroke();
 
-    // Emoji icon in center
-    ctx.font = `${Math.floor(bw * 0.42)}px "Fredoka", sans-serif`;
+    // Emoji icon in center (larger)
+    ctx.font = `${Math.floor(bw * 0.48)}px "Fredoka", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(icon, bx + bw * 0.5, by + bh * 0.42);
 
     // Label on bottom
-    ctx.font = `bold ${Math.floor(bw * 0.26)}px "Fredoka", sans-serif`;
+    ctx.font = `bold ${Math.floor(bw * 0.28)}px "Fredoka", sans-serif`;
     ctx.fillStyle = '#0f172a';
     ctx.fillText(label, bx + bw * 0.5, by + bh * 0.82);
 
@@ -1549,8 +1561,8 @@ export class GameEngine {
     ctx.fillStyle = '#000000';
     ctx.fillText(player.name, px, py - tileH * 0.52);
 
-    // Target letter / question hint pill (only for human players)
-    if (!player.isGhost && player.targetSymbol && !player.isAdversary) {
+    // Target letter hint pill (only for non-math subjects, never in math mode)
+    if (!player.isGhost && player.targetSymbol && !player.isAdversary && this.subject !== 'matematica') {
       const badgeW = 28;
       const badgeH = 18;
       const badgeX = px - badgeW / 2;
