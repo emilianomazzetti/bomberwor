@@ -171,20 +171,20 @@ export class GameEngine {
         else if (x % 2 === 0 && y % 2 === 0) {
           row.push(TILE_WALL);
         }
-        // Safe spawn corners & middle walkaways
+        // Safe spawn corners and generous surrounding open space (guaranteed unblocked)
         else if (
-          (x <= 2 && y <= 2) ||
-          (x >= GRID_COLS - 3 && y <= 2) ||
-          (x <= 2 && y >= GRID_ROWS - 3) ||
-          (x >= GRID_COLS - 3 && y >= GRID_ROWS - 3) ||
-          (x === Math.floor(GRID_COLS / 2) && y <= 2) ||
-          (x === Math.floor(GRID_COLS / 2) && y >= GRID_ROWS - 3)
+          (x <= 3 && y <= 3) ||
+          (x >= GRID_COLS - 4 && y <= 3) ||
+          (x <= 3 && y >= GRID_ROWS - 4) ||
+          (x >= GRID_COLS - 4 && y >= GRID_ROWS - 4) ||
+          (x === Math.floor(GRID_COLS / 2) && y <= 3) ||
+          (x === Math.floor(GRID_COLS / 2) && y >= GRID_ROWS - 4)
         ) {
           row.push(TILE_EMPTY);
         }
         // Random destructible crates
         else {
-          row.push(Math.random() < 0.65 ? TILE_CRATE : TILE_EMPTY);
+          row.push(Math.random() < 0.60 ? TILE_CRATE : TILE_EMPTY);
         }
       }
       this.grid.push(row);
@@ -803,73 +803,55 @@ export class GameEngine {
 
       const tileX = Math.floor(p.x);
       const tileY = Math.floor(p.y);
-      const offsetX = Math.abs(p.x - (tileX + 0.5));
-      const offsetY = Math.abs(p.y - (tileY + 0.5));
-      const isNearCenter = offsetX < 0.15 && offsetY < 0.15;
 
-      // Steering / Path selection
-      if (p.botAiTimer <= 0 || isNearCenter) {
-        p.botAiTimer = 35 + Math.floor(Math.random() * 25);
-
-        const candidates: { dx: number; dy: number; dir: EnginePlayer['direction'] }[] = [
-          { dx: 0, dy: -1, dir: 'up' },
-          { dx: 0, dy: 1, dir: 'down' },
-          { dx: -1, dy: 0, dir: 'left' },
-          { dx: 1, dy: 0, dir: 'right' }
-        ];
-
-        const openDirs = candidates.filter(c => {
-          const nx = tileX + c.dx;
-          const ny = tileY + c.dy;
-          if (nx <= 0 || nx >= GRID_COLS - 1 || ny <= 0 || ny >= GRID_ROWS - 1) return false;
-          const cell = this.grid[ny][nx];
-          if (cell === TILE_WALL || cell === TILE_CRATE) return false;
-          const hasBomb = this.bombs.some(b => b.x === nx && b.y === ny);
-          if (hasBomb) return false;
-          return true;
+      // 1. Check if there is an active bomb nearby (within 3.2 tiles). If so, flee from it!
+      const nearbyBomb = this.bombs.find(b => Math.hypot(b.x - p.x, b.y - p.y) < 3.2);
+      if (nearbyBomb) {
+        const dx = p.x - (nearbyBomb.x + 0.5);
+        const dy = p.y - (nearbyBomb.y + 0.5);
+        const mag = Math.hypot(dx, dy) || 1;
+        p.input.dx = (dx / mag) * 0.9;
+        p.input.dy = (dy / mag) * 0.9;
+        p.botAiTimer = 15;
+      } else {
+        // 2. Hunt nearest human player!
+        let nearestPlayer: EnginePlayer | null = null;
+        let minDist = Infinity;
+        this.players.forEach(other => {
+          if (!other.isAdversary && !other.isGhost) {
+            const dist = Math.hypot(other.x - p.x, other.y - p.y);
+            if (dist < minDist) {
+              minDist = dist;
+              nearestPlayer = other;
+            }
+          }
         });
 
-        if (openDirs.length > 0) {
-          const keepGoing = openDirs.find(d => d.dir === p.direction);
-          if (keepGoing && Math.random() < 0.70) {
-            p.input.dx = keepGoing.dx;
-            p.input.dy = keepGoing.dy;
-          } else {
-            const chosen = openDirs[Math.floor(Math.random() * openDirs.length)];
-            p.input.dx = chosen.dx;
-            p.input.dy = chosen.dy;
+        if (nearestPlayer) {
+          const target = nearestPlayer as EnginePlayer;
+          const dx = target.x - p.x;
+          const dy = target.y - p.y;
+          const mag = Math.hypot(dx, dy) || 1;
+          p.input.dx = (dx / mag) * 0.82;
+          p.input.dy = (dy / mag) * 0.82;
+
+          // If close to player and has bomb, drop bomb to trap/blow them up!
+          if (minDist < 2.0 && p.bombs > 0 && p.botBombTimer <= 0) {
+            this.dropBomb(p);
+            p.input.dx = -p.input.dx;
+            p.input.dy = -p.input.dy;
+            p.botBombTimer = 300 + Math.floor(Math.random() * 120);
           }
         } else {
-          // If trapped, reverse
-          p.input.dx = -p.input.dx;
-          p.input.dy = -p.input.dy;
-        }
-      }
-
-      // Random bomb dropping at regular intervals (every 6 to 9 seconds)
-      if (p.botBombTimer <= 0 && p.bombs > 0 && !p.isGhost) {
-        const nearCrate = [
-          { x: tileX + 1, y: tileY },
-          { x: tileX - 1, y: tileY },
-          { x: tileX, y: tileY + 1 },
-          { x: tileX, y: tileY - 1 }
-        ].some(c => {
-          if (c.x >= 0 && c.x < GRID_COLS && c.y >= 0 && c.y < GRID_ROWS) {
-            return this.grid[c.y][c.x] === TILE_CRATE;
+          // Wandering fallback
+          if (p.botAiTimer <= 0) {
+            p.botAiTimer = 45;
+            const angles = [0, Math.PI / 2, Math.PI, (Math.PI * 3) / 2];
+            const a = angles[Math.floor(Math.random() * angles.length)];
+            p.input.dx = Math.cos(a) * 0.7;
+            p.input.dy = Math.sin(a) * 0.7;
           }
-          return false;
-        });
-
-        if (nearCrate || Math.random() < 0.45) {
-          this.dropBomb(p);
-          // Instantly reverse direction to safely move away from own bomb!
-          p.input.dx = -p.input.dx;
-          p.input.dy = -p.input.dy;
-          p.botAiTimer = 40;
         }
-
-        // Schedule next bomb in 360 to 540 frames (~6 to 9 seconds)
-        p.botBombTimer = 360 + Math.floor(Math.random() * 180);
       }
     });
   }
@@ -1314,7 +1296,7 @@ export class GameEngine {
     ctx.ellipse(x + w * 0.5, y + h * 0.85, w * 0.35, h * 0.15, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    const pad = 4;
+    const pad = 2;
     const bw = w - pad * 2;
     const bh = h - pad * 2;
     const bx = x + pad;
