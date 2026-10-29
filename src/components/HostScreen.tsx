@@ -482,18 +482,9 @@ export const HostScreen: React.FC<HostScreenProps> = ({
                             )}
                           </div>
                           <div className="text-[11px] text-slate-400 truncate flex items-center gap-1">
-                            {subject === 'matematica' ? (
-                              <span className="font-bold text-amber-300 bg-slate-900 px-1.5 py-0.2 rounded border border-slate-700">
-                                {player.questionText || '...'}
-                              </span>
-                            ) : (
-                              <>
-                                <span>Cerca:</span>
-                                <span className="font-bold text-amber-300 bg-slate-900 px-1.5 py-0.2 rounded border border-slate-700">
-                                  {player.targetSymbol || '...'}
-                                </span>
-                              </>
-                            )}
+                            <span className="font-bold text-amber-300 bg-slate-900 px-1.5 py-0.2 rounded border border-slate-700">
+                              {(player.questionText || '...').replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '').trim()}
+                            </span>
                           </div>
 
                           {/* Completed Words / Operations Badges in Live Scoreboard */}

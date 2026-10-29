@@ -19,6 +19,79 @@ interface ControllerScreenProps {
   onExit?: () => void;
 }
 
+function parseMathQuestion(text: string, serverAnswer?: string): {
+  isMath: boolean;
+  operation: string;
+  expectedResult: string;
+  slots: string[];
+} {
+  const clean = (text || '')
+    .replace(/\[.*?\]/g, '')
+    .replace(/\(.*?\)/g, '')
+    .trim();
+
+  // Match patterns like "9 × 6", "9 x 6", "12 + 15", "50 - 18", "45 ÷ 5"
+  const match = clean.match(/(\d+)\s*([×xX*+\-÷/])\s*(\d+)/);
+  if (match) {
+    const num1 = parseInt(match[1], 10);
+    const op = match[2];
+    const num2 = parseInt(match[3], 10);
+    let res = 0;
+    let opSymbol = op;
+    if (op === '×' || op.toLowerCase() === 'x' || op === '*') {
+      res = num1 * num2;
+      opSymbol = '×';
+    } else if (op === '+') {
+      res = num1 + num2;
+      opSymbol = '+';
+    } else if (op === '-') {
+      res = num1 - num2;
+      opSymbol = '-';
+    } else if (op === '÷' || op === '/') {
+      res = Math.floor(num1 / num2);
+      opSymbol = '÷';
+    }
+
+    const formattedOp = `${num1} ${opSymbol} ${num2}`;
+    const expected = (serverAnswer && /^[0-9]+$/.test(serverAnswer.trim()))
+      ? serverAnswer.trim()
+      : res.toString();
+
+    let slots: string[] = [];
+    if (clean.includes('=')) {
+      const right = clean.split('=')[1].trim();
+      const parts = right.split(/\s+/).filter(Boolean);
+      slots = parts.map(p => p.trim()).filter(Boolean);
+    }
+    if (slots.length === 0) {
+      slots = Array.from({ length: expected.length }).map(() => '?');
+    }
+
+    return {
+      isMath: true,
+      operation: formattedOp,
+      expectedResult: expected,
+      slots
+    };
+  }
+
+  if (serverAnswer && /^[0-9]+$/.test(serverAnswer.trim())) {
+    return {
+      isMath: true,
+      operation: clean.split('=')[0]?.trim() || clean,
+      expectedResult: serverAnswer.trim(),
+      slots: Array.from({ length: serverAnswer.trim().length }).map(() => '?')
+    };
+  }
+
+  return {
+    isMath: false,
+    operation: clean,
+    expectedResult: '',
+    slots: []
+  };
+}
+
 export const ControllerScreen: React.FC<ControllerScreenProps> = ({
   initialRoomPin = '',
   onExit
@@ -254,16 +327,17 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
   };
 
   // Ghost revival Digipad logic for math
-  const targetAnswer = (correctAnswer || spellingWord || '').trim();
-  const targetLen = targetAnswer.length > 0 ? targetAnswer.length : 2;
+  const mathInfo = parseMathQuestion(questionText, correctAnswer || spellingWord);
+  const mathTarget = mathInfo.expectedResult || (correctAnswer || spellingWord || '').trim();
+  const mathTargetLen = mathTarget.length > 0 ? mathTarget.length : 2;
 
   const handleDigipadInput = (digit: string) => {
-    if (digipadInput.length >= targetLen) return;
+    if (digipadInput.length >= mathTargetLen) return;
     const nextVal = digipadInput + digit;
     setDigipadInput(nextVal);
 
-    if (nextVal.length === targetLen) {
-      if (nextVal === targetAnswer) {
+    if (nextVal.length === mathTargetLen) {
+      if (nextVal === mathTarget) {
         setGhostFeedback('Corretto! Sei tornato in vita! 🌟');
         soundEngine.playCorrect();
         netRef.current?.sendRevive();
@@ -277,7 +351,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
         setTimeout(() => {
           setGhostFeedback(null);
           setDigipadInput('');
-        }, 1200);
+        }, 1000);
       }
     }
   };
@@ -463,59 +537,41 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
         </div>
 
         {/* Central Educational Mission Box */}
-        {questionText.includes('=') ? (
-          (() => {
-            const [mathOp, mathSlots] = questionText.split('=');
-            const slotParts = (mathSlots || '').trim().split(/\s+/).filter(Boolean);
-            return (
-              <div className="bg-gradient-to-r from-blue-950/80 via-slate-900/90 to-indigo-950/80 border-2 border-amber-400/60 rounded-2xl p-3 sm:p-4 shadow-xl flex items-center justify-center gap-3 text-center">
-                <div className="flex items-center justify-center gap-2 flex-wrap">
-                  <span className="text-2xl sm:text-4xl font-black text-white tracking-wider drop-shadow">
-                    {(mathOp || '').trim()}
-                  </span>
-                  <span className="text-2xl sm:text-4xl font-black text-amber-400 mx-1 drop-shadow">
-                    =
-                  </span>
-                  <div className="inline-flex items-center gap-2">
-                    {slotParts.map((part, idx) => {
-                      const isFound = /^[0-9]$/.test(part);
-                      return (
-                        <span
-                          key={idx}
-                          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl font-black text-2xl sm:text-3xl flex items-center justify-center shadow-lg transition-all ${
-                            isFound
-                              ? 'bg-amber-400 text-slate-950 border-2 border-white scale-105 shadow-amber-500/40'
-                              : 'bg-slate-900/90 text-amber-300 border-2 border-dashed border-slate-600'
-                          }`}
-                        >
-                          {part}
-                        </span>
-                      );
-                    })}
-                  </div>
+        <div className="bg-gradient-to-r from-blue-950/90 via-slate-900/95 to-indigo-950/90 border-2 border-amber-400/60 rounded-2xl p-4 sm:p-5 shadow-2xl flex flex-col items-center justify-center text-center">
+          {mathInfo.isMath ? (
+            <div className="w-full flex flex-col items-center justify-center">
+              <div className="flex items-center justify-center gap-2 sm:gap-4 flex-wrap my-1">
+                <span className="text-3xl sm:text-5xl md:text-6xl font-black text-white tracking-wider drop-shadow-md font-mono">
+                  {mathInfo.operation}
+                </span>
+                <span className="text-3xl sm:text-5xl md:text-6xl font-black text-amber-400 mx-1 drop-shadow-md font-mono">
+                  =
+                </span>
+                <div className="inline-flex items-center gap-2 sm:gap-3">
+                  {mathInfo.slots.map((s, idx) => {
+                    const isDigit = /^[0-9]$/.test(s);
+                    return (
+                      <span
+                        key={idx}
+                        className={`w-11 h-11 sm:w-14 sm:h-14 md:w-16 md:h-16 rounded-2xl font-black text-2xl sm:text-4xl md:text-5xl flex items-center justify-center shadow-xl transition-all ${
+                          isDigit
+                            ? 'bg-amber-400 text-slate-950 border-2 sm:border-3 border-white scale-105 shadow-amber-500/50'
+                            : 'bg-slate-900/90 text-amber-300 border-2 sm:border-3 border-dashed border-slate-600'
+                        }`}
+                      >
+                        {s}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
-            );
-          })()
-        ) : (
-          <div className="bg-gradient-to-r from-blue-950/70 to-indigo-950/70 border border-blue-500/40 rounded-xl p-3 flex items-center justify-between gap-3 shadow-inner">
-            <div className="min-w-0">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                Obiettivo Didattico
-              </div>
-              <div className="text-base sm:text-lg font-black text-white truncate">
-                {questionText || 'In attesa del quesito dalla LIM...'}
-              </div>
             </div>
-
-            {targetSymbol && (
-              <div className="shrink-0 text-center bg-amber-400 text-slate-950 px-4 py-1.5 rounded-xl font-black text-xl shadow-lg border-2 border-white tracking-wider">
-                {targetSymbol}
-              </div>
-            )}
-          </div>
-        )}
+          ) : (
+            <div className="text-2xl sm:text-3xl font-black text-white tracking-wide py-2 truncate">
+              {questionText.replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '').trim()}
+            </div>
+          )}
+        </div>
 
         {/* Active Collected Bonuses Display (Prominent on Tablet Controller) */}
         {(speedBonus > 0 || extraBombsBonus > 0 || rangeBonus > 0) && (
@@ -563,29 +619,29 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
         {/* Ghost Revival Overlay (solid dark overlay without blur repaints) */}
         {isGhost && (
           <div className="absolute inset-0 z-30 bg-slate-950/95 rounded-3xl border-2 border-purple-500 p-4 sm:p-6 flex flex-col items-center justify-center text-center shadow-2xl overflow-y-auto">
-            <Ghost className="w-12 h-12 text-purple-300 mb-1 shrink-0" />
-            <h2 className="text-xl sm:text-2xl font-black text-white mb-0.5">SEI UN FANTASMA! 👻</h2>
-            <p className="text-xs text-purple-200 max-w-xs mb-3">
-              Risolvi l'operazione per tornare subito in gioco sulla LIM!
+            <Ghost className="w-12 h-12 text-purple-300 mb-1 shrink-0 animate-bounce" />
+            <h2 className="text-2xl sm:text-3xl font-black text-white mb-0.5">SEI UN FANTASMA! 👻</h2>
+            <p className="text-xs sm:text-sm text-purple-200 max-w-xs mb-3 font-semibold">
+              Risolvi l'operazione sul tastierino per tornare subito in gioco sulla LIM!
             </p>
 
-            {questionText.includes('=') || (correctAnswer && /^[0-9]+$/.test(correctAnswer)) ? (
-              <div className="bg-slate-900 border-2 border-purple-400/50 p-3 sm:p-4 rounded-2xl w-full max-w-xs mb-3 shadow-2xl text-center">
-                <div className="text-[11px] uppercase tracking-wider font-bold text-purple-300 mb-2">
-                  Inserisci le 2 cifre del risultato:
+            {mathInfo.isMath ? (
+              <div className="bg-slate-900 border-2 border-purple-400/60 p-4 rounded-2xl w-full max-w-xs mb-2 shadow-2xl text-center">
+                <div className="text-xs uppercase tracking-widest font-black text-purple-300 mb-2">
+                  Digita il risultato completo:
                 </div>
-                <div className="flex items-center justify-center gap-2 mb-3">
-                  <span className="text-2xl sm:text-3xl font-black text-white">
-                    {questionText.includes('=') ? questionText.split('=')[0].trim() : questionText}
+                <div className="flex items-center justify-center gap-2 mb-4">
+                  <span className="text-2xl sm:text-3xl font-black text-white font-mono">
+                    {mathInfo.operation}
                   </span>
-                  <span className="text-2xl sm:text-3xl font-black text-amber-400">=</span>
+                  <span className="text-2xl sm:text-3xl font-black text-amber-400 font-mono">=</span>
                   <div className="inline-flex items-center gap-1.5">
-                    {Array.from({ length: targetLen }).map((_, idx) => {
+                    {Array.from({ length: mathTargetLen }).map((_, idx) => {
                       const digitChar = digipadInput[idx];
                       return (
                         <span
                           key={idx}
-                          className={`w-10 h-10 rounded-xl font-black text-2xl flex items-center justify-center border-2 transition-all ${
+                          className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl font-black text-2xl flex items-center justify-center border-2 transition-all ${
                             digitChar
                               ? 'bg-amber-400 text-slate-950 border-white shadow-md'
                               : 'bg-slate-950 text-amber-300/80 border-dashed border-slate-600'
@@ -599,13 +655,13 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
                 </div>
 
                 {/* 3x4 Digipad Keypad matching user sketch */}
-                <div className="grid grid-cols-3 gap-1.5 sm:gap-2 w-full max-w-[220px] mx-auto select-none">
+                <div className="grid grid-cols-3 gap-2 w-full max-w-[240px] mx-auto select-none">
                   {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
                     <button
                       key={d}
                       type="button"
                       onClick={() => handleDigipadInput(d)}
-                      className="aspect-square bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 text-white font-black text-xl sm:text-2xl rounded-xl border border-slate-600 shadow active:scale-95 transition flex items-center justify-center select-none"
+                      className="aspect-square bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 text-white font-black text-xl sm:text-2xl rounded-xl border border-slate-600 shadow-md active:scale-95 transition flex items-center justify-center select-none"
                     >
                       {d}
                     </button>
@@ -613,7 +669,7 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
                   <button
                     type="button"
                     onClick={handleDigipadClear}
-                    className="aspect-square bg-red-950/80 hover:bg-red-900 active:scale-95 text-red-300 font-black text-base rounded-xl border border-red-700/60 shadow transition flex items-center justify-center select-none"
+                    className="aspect-square bg-red-950/90 hover:bg-red-900 active:scale-95 text-red-300 font-black text-lg rounded-xl border border-red-700/60 shadow-md transition flex items-center justify-center select-none"
                     title="Cancella tutto"
                   >
                     C
@@ -621,14 +677,14 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => handleDigipadInput('0')}
-                    className="aspect-square bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 text-white font-black text-xl sm:text-2xl rounded-xl border border-slate-600 shadow active:scale-95 transition flex items-center justify-center select-none"
+                    className="aspect-square bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 text-white font-black text-xl sm:text-2xl rounded-xl border border-slate-600 shadow-md active:scale-95 transition flex items-center justify-center select-none"
                   >
                     0
                   </button>
                   <button
                     type="button"
                     onClick={handleDigipadBackspace}
-                    className="aspect-square bg-amber-950/80 hover:bg-amber-900 active:scale-95 text-amber-300 font-black text-base rounded-xl border border-amber-700/60 shadow transition flex items-center justify-center select-none"
+                    className="aspect-square bg-amber-950/90 hover:bg-amber-900 active:scale-95 text-amber-300 font-black text-lg rounded-xl border border-amber-700/60 shadow-md transition flex items-center justify-center select-none"
                     title="Cancella ultima cifra"
                   >
                     ⌫
@@ -637,8 +693,10 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
               </div>
             ) : (
               <div className="bg-purple-900/80 p-3 rounded-2xl border border-purple-400/40 w-full max-w-sm mb-4 shadow-lg">
-                <div className="text-sm font-bold text-amber-300 mb-2">{questionText}</div>
-                {options && options.length > 0 ? (
+                <div className="text-base font-bold text-amber-300 mb-3">
+                  {questionText.replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '').trim()}
+                </div>
+                {options && options.length > 0 && (
                   <div className="grid grid-cols-2 gap-2">
                     {options.map((opt, i) => (
                       <button
@@ -650,19 +708,12 @@ export const ControllerScreen: React.FC<ControllerScreenProps> = ({
                       </button>
                     ))}
                   </div>
-                ) : (
-                  <button
-                    onClick={() => handleGhostAnswer(targetSymbol)}
-                    className="w-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-base py-3 rounded-xl shadow-lg active:scale-95 transition"
-                  >
-                    Tocca qui: {targetSymbol || 'RIPARTI'}
-                  </button>
                 )}
               </div>
             )}
 
             {ghostFeedback && (
-              <div className="text-sm font-bold text-amber-300 px-3 py-1.5 bg-slate-900/90 rounded-xl border border-purple-500/40">
+              <div className="text-sm sm:text-base font-bold text-amber-300 px-4 py-2 bg-slate-900/95 rounded-xl border border-purple-500/50 shadow-lg mt-2">
                 {ghostFeedback}
               </div>
             )}

@@ -1561,26 +1561,6 @@ export class GameEngine {
     ctx.fillStyle = '#000000';
     ctx.fillText(player.name, px, py - tileH * 0.52);
 
-    // Target letter hint pill (only for non-math subjects, never in math mode)
-    if (!player.isGhost && player.targetSymbol && !player.isAdversary && this.subject !== 'matematica') {
-      const badgeW = 28;
-      const badgeH = 18;
-      const badgeX = px - badgeW / 2;
-      const badgeY = py - tileH * 0.5 - badgeH;
-
-      ctx.fillStyle = char.hex;
-      ctx.beginPath();
-      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 6);
-      ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 10px "Fredoka", sans-serif';
-      ctx.fillText(player.targetSymbol, px, badgeY + 12);
-    }
-
     // Stun indicator
     if (isStunned) {
       ctx.fillStyle = '#eab308';
